@@ -114,13 +114,14 @@
 ## 部署流程（别跳过）
 
 ```bash
-npm run build
-npx wrangler versions upload --name anitalee-website
-npx wrangler versions deploy <VERSION_ID> --name anitalee-website --yes
+NODE_OPTIONS="" npm run build
+git add <本次修改的文件>
+git commit -m "说明本次修改"
+git push origin main
 ```
 
-详细约定见 `/Volumes/大想T7/AI-职业与实践/00_协作区/for_codex_部署约定.md`
+GitHub 推送后由 Cloudflare Pages 自动发布。发布后必须打开 `https://anitalee.cn` 和本次修改的站内路径验证。详细约定见 `/Volumes/大想T7/AI-职业与实践/00_协作区/for_codex_部署约定.md`。
 
 ---
 
-_最后更新：2026-07-31（字体改 Inter、证据数字放大、标签药丸化、深色区暖化）_
+_最后更新：2026-08-11（同步正式部署流程）_
