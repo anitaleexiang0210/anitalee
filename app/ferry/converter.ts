@@ -15,10 +15,13 @@ import {
   NumberFormat,
   Packer,
   Paragraph,
+  LineRuleType,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
   TextRun,
+  VerticalAlign,
   WidthType,
 } from "docx";
 import type { MathComponent, ParagraphChild } from "docx";
@@ -60,14 +63,29 @@ const LATEX_SYMBOLS: Record<string, string> = {
   gamma: "γ",
   delta: "δ",
   epsilon: "ε",
+  varepsilon: "ε",
+  eta: "η",
   theta: "θ",
+  vartheta: "ϑ",
+  iota: "ι",
+  kappa: "κ",
   lambda: "λ",
   mu: "μ",
+  nu: "ν",
+  xi: "ξ",
+  omicron: "ο",
   pi: "π",
+  varpi: "ϖ",
   rho: "ρ",
+  varrho: "ϱ",
   sigma: "σ",
+  varsigma: "ς",
   tau: "τ",
+  upsilon: "υ",
   phi: "φ",
+  varphi: "ϕ",
+  chi: "χ",
+  psi: "ψ",
   omega: "ω",
   Gamma: "Γ",
   Delta: "Δ",
@@ -75,7 +93,9 @@ const LATEX_SYMBOLS: Record<string, string> = {
   Lambda: "Λ",
   Pi: "Π",
   Sigma: "Σ",
+  Upsilon: "Υ",
   Phi: "Φ",
+  Psi: "Ψ",
   Omega: "Ω",
   times: "×",
   cdot: "·",
@@ -102,7 +122,9 @@ const LATEX_SYMBOLS: Record<string, string> = {
   in: "∈",
   notin: "∉",
   subset: "⊂",
+  subseteq: "⊆",
   supset: "⊃",
+  supseteq: "⊇",
   cup: "∪",
   cap: "∩",
   forall: "∀",
@@ -114,7 +136,7 @@ const WORD_SYMBOLS: Record<string, string> = Object.fromEntries(
 );
 
 const FUNCTION_NAMES = new Set(["sin", "cos", "tan", "log", "ln", "exp", "lim", "max", "min"]);
-const TEXT_STYLE_COMMANDS = new Set(["text", "mathrm", "mathbf", "mathit", "mathsf", "mathtt", "mathcal", "mathbb", "operatorname"]);
+const TEXT_STYLE_COMMANDS = new Set(["text", "mathrm", "mathbf", "mathit", "mathsf", "mathtt", "mathcal", "mathbb", "mathscr", "operatorname"]);
 
 function safeStem(name: string) {
   return name.replace(/\.(md|markdown|docx)$/i, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim() || "document";
@@ -214,7 +236,9 @@ class LatexMathParser {
     }
 
     if (TEXT_STYLE_COMMANDS.has(command)) {
-      return new MathRun(this.readRawGroup());
+      const raw = this.readRawGroup();
+      const parsed = new LatexMathParser(raw).parse();
+      return parsed.length === 1 ? parsed[0] : new MathRun(raw);
     }
 
     if (command === "left" || command === "right") {
@@ -318,36 +342,87 @@ export function splitMarkdownMath(value: string): MathSegment[] {
   return segments.length ? segments : [{ type: "text", value }];
 }
 
-function textAndMathRuns(value: string, options: { bold?: boolean; italics?: boolean; strike?: boolean } = {}): ParagraphChild[] {
-  return splitMarkdownMath(value).map((segment) =>
-    segment.type === "math"
-      ? latexToWordMath(segment.value)
-      : new TextRun({ text: segment.value.replace(/`/g, ""), ...options }),
-  );
+function formulaMarker(value: string, display: boolean): string {
+  const hex = Array.from(new TextEncoder().encode(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `FERRY${display ? "DISPLAY" : "INLINE"}${hex}TOKEN`;
 }
 
-function inlineRuns(tokens: InlineToken[]): ParagraphChild[] {
+function protectMarkdownMath(value: string): string {
+  return splitMarkdownMath(value)
+    .map((segment) => segment.type === "math" ? formulaMarker(segment.value, Boolean(segment.display)) : segment.value)
+    .join("");
+}
+
+const FORMULA_MARKER_PATTERN = /FERRY(INLINE|DISPLAY)([0-9a-f]+)TOKEN/g;
+
+function decodeFormulaHex(hex: string): string {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < hex.length; index += 2) bytes[index / 2] = Number.parseInt(hex.slice(index, index + 2), 16);
+  return new TextDecoder().decode(bytes);
+}
+
+function markerFormula(value: string): { latex: string; display: boolean } | null {
+  const match = /^FERRY(INLINE|DISPLAY)([0-9a-f]+)TOKEN$/.exec(value.trim());
+  return match ? { latex: decodeFormulaHex(match[2]), display: match[1] === "DISPLAY" } : null;
+}
+
+type InlineStyleOptions = {
+  bold?: boolean;
+  italics?: boolean;
+  strike?: boolean;
+  size?: number;
+  font?: string;
+};
+
+function textAndMathRuns(value: string, options: InlineStyleOptions = {}): ParagraphChild[] {
+  const runs: ParagraphChild[] = [];
+  let cursor = 0;
+  const markerPattern = new RegExp(FORMULA_MARKER_PATTERN.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = markerPattern.exec(value))) {
+    if (match.index > cursor) runs.push(...textAndMathRuns(value.slice(cursor, match.index), options));
+    runs.push(latexToWordMath(decodeFormulaHex(match[2])));
+    cursor = match.index + match[0].length;
+  }
+  if (cursor > 0) {
+    if (cursor < value.length) runs.push(...textAndMathRuns(value.slice(cursor), options));
+    return runs;
+  }
+  return splitMarkdownMath(value).map((segment) => segment.type === "math"
+    ? latexToWordMath(segment.value)
+    : new TextRun({ text: segment.value.replace(/`/g, ""), ...options }));
+}
+
+function inlineRuns(tokens: InlineToken[], options: InlineStyleOptions = {}): ParagraphChild[] {
   const runs: ParagraphChild[] = [];
   for (const token of tokens) {
     if (!token) continue;
     switch (token.type) {
       case "text":
-        runs.push(...textAndMathRuns(token.text ?? ""));
+        runs.push(...(token.tokens?.length
+          ? inlineRuns(token.tokens, options)
+          : textAndMathRuns(token.text ?? "", options)));
         break;
       case "escape":
-        if (token.text) runs.push(new TextRun({ text: token.text }));
+        if (token.text) runs.push(new TextRun({ text: token.text, ...options }));
         break;
       case "strong":
-        runs.push(...textAndMathRuns(flattenText(token.tokens) || token.text || "", { bold: true }));
+        runs.push(...(token.tokens?.length
+          ? inlineRuns(token.tokens, { ...options, bold: true })
+          : textAndMathRuns(token.text || "", { ...options, bold: true })));
         break;
       case "em":
-        runs.push(...textAndMathRuns(flattenText(token.tokens) || token.text || "", { italics: true }));
+        runs.push(...(token.tokens?.length
+          ? inlineRuns(token.tokens, { ...options, italics: true })
+          : textAndMathRuns(token.text || "", { ...options, italics: true })));
         break;
       case "del":
-        runs.push(...textAndMathRuns(flattenText(token.tokens) || token.text || "", { strike: true }));
+        runs.push(...(token.tokens?.length
+          ? inlineRuns(token.tokens, { ...options, strike: true })
+          : textAndMathRuns(token.text || "", { ...options, strike: true })));
         break;
       case "codespan":
-        runs.push(new TextRun({ text: cleanText(token.text ?? ""), font: "Consolas" }));
+        runs.push(new TextRun({ text: cleanText(token.text ?? ""), ...options, font: "Consolas" }));
         break;
       case "link":
         runs.push(
@@ -355,6 +430,7 @@ function inlineRuns(tokens: InlineToken[]): ParagraphChild[] {
             children: [
               new TextRun({
                 text: cleanText(flattenText(token.tokens) || token.text || token.href || ""),
+                ...options,
                 color: "0563C1",
                 underline: {},
               }),
@@ -364,10 +440,10 @@ function inlineRuns(tokens: InlineToken[]): ParagraphChild[] {
         );
         break;
       case "image":
-        runs.push(new TextRun({ text: token.text || token.title || "", italics: true, color: "77736B" }));
+        runs.push(new TextRun({ text: token.text || token.title || "", ...options, italics: true, color: "77736B" }));
         break;
       case "br":
-        runs.push(new TextRun({ break: 1 }));
+        runs.push(new TextRun({ break: 1, ...options }));
         break;
       default:
         break;
@@ -398,8 +474,109 @@ function normalizeEscapedLatex(value: string): string {
     .replace(/\\{2,}(?=[A-Za-z])/g, "\\")
     .replace(/\\{2,}(?=[{}])/g, "\\")
     .replace(/\\+([_=+\-*\[\]])/g, "$1")
+    .replace(/\\(vert|Vert|mid|parallel)\{\}/g, "\\$1")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+type FormulaWord = {
+  start: number;
+  end: number;
+  coreStart: number;
+  coreEnd: number;
+  math: boolean;
+  relation: boolean;
+  atom: boolean;
+  connector: boolean;
+};
+
+function formulaWord(line: string, match: RegExpExecArray): FormulaWord {
+  const raw = match[0];
+  let coreStart = 0;
+  let coreEnd = raw.length;
+  if (raw.startsWith("**")) coreStart = 2;
+  if (raw.endsWith("**") && coreEnd - coreStart > 4) coreEnd -= 2;
+  while (/[.,;:]/.test(raw[coreEnd - 1] ?? "")) coreEnd -= 1;
+  const candidate = raw.slice(coreStart, coreEnd);
+  if (candidate.startsWith("(") && !candidate.includes(")")) coreStart += 1;
+  if (raw.slice(coreStart, coreEnd).endsWith(")") && !raw.slice(coreStart, coreEnd).includes("(")) coreEnd -= 1;
+
+  const core = raw.slice(coreStart, coreEnd);
+  const command = /\\{1,}[A-Za-z]+/.test(core);
+  const subOrSuper = /(?:[A-Za-z)}\]])(?:\\?_(?:\{|[A-Za-z0-9])|\^)/.test(core);
+  const equation = /=/.test(core) && /^[A-Za-z0-9Θ{}()[\],._^*+\-=|\\]+$/.test(core);
+  const relation = /^\\{1,}(?:in|notin|mid|times|cdot|subset|subseteq|supset|supseteq|rightarrow|leftarrow|parallel)$/.test(core);
+  const connector = /^(?:\\?[=+\-*/]|\\(?:quad|qquad))$/.test(core);
+  const atomCore = core.replace(/^[([{]+|[)\]},]+$/g, "");
+  const atom = /^[A-Za-zΘ](?:,[A-Za-zΘ])*$/.test(atomCore) || subOrSuper || equation;
+
+  return {
+    start: match.index,
+    end: match.index + raw.length,
+    coreStart: match.index + coreStart,
+    coreEnd: match.index + coreEnd,
+    math: command || subOrSuper || equation,
+    relation,
+    atom,
+    connector,
+  };
+}
+
+function normalizeInlineFormulas(line: string): { text: string; count: number } {
+  if (!/(?:\\{1,}[A-Za-z]+|[A-Za-z)}\]]\\?_(?:\{|[A-Za-z0-9])|[A-Za-z)}\]]\^)/.test(line) || line.includes("$")) {
+    return { text: line, count: 0 };
+  }
+
+  const words: FormulaWord[] = [];
+  const wordPattern = /\S+/g;
+  let match: RegExpExecArray | null;
+  while ((match = wordPattern.exec(line))) words.push(formulaWord(line, match));
+
+  const selected = words.map((word) => word.math);
+  for (let index = 0; index < words.length; index += 1) {
+    if (!words[index].relation) continue;
+    selected[index] = true;
+    if (index > 0 && words[index - 1].atom) selected[index - 1] = true;
+    if (index + 1 < words.length && words[index + 1].atom) selected[index + 1] = true;
+  }
+  for (let index = 1; index + 1 < words.length; index += 1) {
+    if (words[index].connector && selected[index - 1] && selected[index + 1]) selected[index] = true;
+  }
+
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (let index = 0; index < words.length; index += 1) {
+    if (!selected[index]) continue;
+    const start = words[index].coreStart;
+    let end = words[index].coreEnd;
+    while (index + 1 < words.length && selected[index + 1]) {
+      index += 1;
+      end = words[index].coreEnd;
+    }
+    if (end > start) ranges.push({ start, end });
+  }
+
+  if (!ranges.length) return { text: line, count: 0 };
+  let output = "";
+  let cursor = 0;
+  for (const range of ranges) {
+    output += line.slice(cursor, range.start);
+    output += `$${normalizeEscapedLatex(line.slice(range.start, range.end))}$`;
+    cursor = range.end;
+  }
+  output += line.slice(cursor);
+  return { text: output, count: ranges.length };
+}
+
+function stripCommonAiPreamble(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const firstContent = lines.findIndex((line) => line.trim());
+  if (firstContent < 0) return text;
+  const first = lines[firstContent].trim();
+  const next = lines.slice(firstContent + 1).find((line) => line.trim())?.trim() ?? "";
+  const isTranslationPreamble = /^Here is (?:the )?.{0,100}(?:translation|translated document).{0,100}(?:journal|format|requirements).*:$/i.test(first);
+  if (!isTranslationPreamble || !/^#{1,6}\s/.test(next)) return text;
+  lines.splice(firstContent, 1);
+  return lines.join("\n").replace(/^\s*\n/, "");
 }
 
 export function normalizeUnmarkedFormulas(text: string): { text: string; count: number } {
@@ -420,48 +597,93 @@ export function normalizeUnmarkedFormulas(text: string): { text: string; count: 
       count += 1;
       continue;
     }
-    output.push(line);
+    if (!inCodeFence) {
+      const normalized = normalizeInlineFormulas(line);
+      output.push(normalized.text);
+      count += normalized.count;
+    } else {
+      output.push(line);
+    }
   }
 
   return { text: output.join("\n").replace(/\n{4,}/g, "\n\n\n"), count };
 }
 
+const BODY_SPACING = { before: 0, after: 0, line: 276, lineRule: LineRuleType.AUTO } as const;
+
+function splitAtBreaks(tokens: InlineToken[]): InlineToken[][] {
+  const groups: InlineToken[][] = [[]];
+  for (const token of tokens) {
+    if (token.type === "br") groups.push([]);
+    else groups[groups.length - 1].push(token);
+  }
+  return groups.filter((group) => group.length > 0);
+}
+
+function listParagraphs(block: any, level = 0): Paragraph[] {
+  const paragraphs: Paragraph[] = [];
+  for (const item of block.items ?? []) {
+    const itemTokens = (item.tokens ?? []).filter((token: any) => token.type !== "list");
+    paragraphs.push(new Paragraph({
+      ...(block.ordered
+        ? { numbering: { reference: "ordered-list", level: Math.min(level, 2) } }
+        : { bullet: { level: Math.min(level, 8) } }),
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: BODY_SPACING,
+      children: inlineRuns(itemTokens),
+    }));
+    for (const nested of (item.tokens ?? []).filter((token: any) => token.type === "list")) {
+      paragraphs.push(...listParagraphs(nested, level + 1));
+    }
+  }
+  return paragraphs;
+}
+
 function blockChildren(blocks: any[]): (Paragraph | Table)[] {
   const children: (Paragraph | Table)[] = [];
+  let foundTitle = false;
   for (const block of blocks) {
     if (!block) continue;
     switch (block.type) {
       case "heading": {
         const level = Math.min(block.depth, 6) as 1 | 2 | 3 | 4 | 5 | 6;
         const heading = `Heading${level}` as keyof typeof HeadingLevel;
+        const isTitle = !foundTitle;
+        foundTitle = true;
         children.push(new Paragraph({
           heading: HeadingLevel[heading],
-          spacing: { before: 260, after: 120 },
-          children: inlineRuns(block.tokens ?? []),
+          alignment: isTitle ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
+          keepNext: true,
+          spacing: BODY_SPACING,
+          children: inlineRuns(block.tokens ?? [], isTitle ? { bold: true, size: 28, font: "Times New Roman" } : { bold: true }),
         }));
         break;
       }
       case "paragraph": {
         const raw = String(block.raw ?? block.text ?? "").trim();
         const displayMatch = /^\$\$([\s\S]+)\$\$$/.exec(raw);
-        children.push(new Paragraph({
-          alignment: displayMatch ? AlignmentType.CENTER : undefined,
-          spacing: { after: 120 },
-          children: displayMatch ? [latexToWordMath(displayMatch[1])] : inlineRuns(block.tokens ?? []),
-        }));
+        const protectedFormula = markerFormula(raw);
+        if (displayMatch || protectedFormula?.display) {
+          children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: BODY_SPACING,
+            children: [latexToWordMath(displayMatch?.[1] ?? protectedFormula?.latex ?? "")],
+          }));
+        } else {
+          const isCaption = /^\*\*Table\s+\d+\s*:/i.test(raw);
+          for (const tokens of splitAtBreaks(block.tokens ?? [])) {
+            children.push(new Paragraph({
+              alignment: isCaption ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
+              keepNext: isCaption || undefined,
+              spacing: BODY_SPACING,
+              children: inlineRuns(tokens),
+            }));
+          }
+        }
         break;
       }
       case "list":
-        for (const item of block.items ?? []) {
-          const itemTokens = (item.tokens ?? []).filter((token: any) => token.type !== "list");
-          children.push(new Paragraph({
-            ...(block.ordered
-              ? { numbering: { reference: "ordered-list", level: 0 } }
-              : { bullet: { level: 0 } }),
-            spacing: { after: 60 },
-            children: inlineRuns(itemTokens),
-          }));
-        }
+        children.push(...listParagraphs(block));
         break;
       case "code":
         children.push(new Paragraph({
@@ -472,28 +694,43 @@ function blockChildren(blocks: any[]): (Paragraph | Table)[] {
         }));
         break;
       case "blockquote":
-        children.push(new Paragraph({
-          spacing: { after: 120 },
-          indent: { left: 360 },
-          border: { left: { style: "single", size: 12, color: "DEDBD4" } },
-          children: inlineRuns(block.tokens ?? []),
-        }));
+        if ((block.tokens ?? []).some((token: any) => token.type === "list")) {
+          for (const token of block.tokens ?? []) {
+            if (token.type === "list") children.push(...listParagraphs(token));
+          }
+        } else {
+          children.push(new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: BODY_SPACING,
+            indent: { left: 360 },
+            border: { left: { style: "single", size: 12, color: "DEDBD4" } },
+            children: inlineRuns(block.tokens ?? []),
+          }));
+        }
         break;
       case "table": {
         const cellsToRow = (cells: any[], header = false) => new TableRow({
           tableHeader: header || undefined,
+          cantSplit: true,
           children: cells.map((cell) => new TableCell({
+            verticalAlign: VerticalAlign.CENTER,
             shading: header ? { type: "clear", fill: "F3F0E9" } : undefined,
             children: [new Paragraph({
-              children: textAndMathRuns(typeof cell === "string" ? cell : cell.text ?? "", { bold: header }),
+              alignment: AlignmentType.CENTER,
+              spacing: BODY_SPACING,
+              children: typeof cell === "string"
+                ? textAndMathRuns(cell, { bold: header })
+                : inlineRuns(cell.tokens ?? [], { bold: header }),
             })],
           })),
         });
         children.push(new Table({
           rows: [cellsToRow(block.header ?? [], true), ...(block.rows ?? []).map((row: any[]) => cellsToRow(row))],
           width: { size: 100, type: WidthType.PERCENTAGE },
+          alignment: AlignmentType.CENTER,
+          layout: TableLayoutType.AUTOFIT,
+          margins: { top: 60, bottom: 60, left: 80, right: 80 },
         }));
-        children.push(new Paragraph({ spacing: { after: 120 } }));
         break;
       }
       case "hr":
@@ -503,7 +740,6 @@ function blockChildren(blocks: any[]): (Paragraph | Table)[] {
         }));
         break;
       case "space":
-        children.push(new Paragraph({ spacing: { after: 120 } }));
         break;
       default:
         break;
@@ -603,16 +839,30 @@ export function decodeMarkdownBytes(input: ArrayBuffer | Uint8Array, repair = tr
 
 export async function readMarkdownFile(file: File, repair = true): Promise<MarkdownDecodeResult & { normalizedFormulaCount: number }> {
   const decoded = decodeMarkdownBytes(await file.arrayBuffer(), repair);
-  const normalized = normalizeUnmarkedFormulas(decoded.text);
+  const normalized = normalizeUnmarkedFormulas(stripCommonAiPreamble(decoded.text));
   return { ...decoded, text: normalized.text, normalizedFormulaCount: normalized.count };
 }
 
 export async function markdownToWord(file: File, repair = true): Promise<ConversionResult> {
   const decoded = await readMarkdownFile(file, repair);
-  const blocks = marked.lexer(decoded.text);
+  const blocks = marked.lexer(protectMarkdownMath(decoded.text));
   const doc = new Document({
     creator: "文档渡口",
     title: safeStem(file.name),
+    styles: {
+      default: {
+        document: {
+          run: { font: "Times New Roman", size: 20 },
+          paragraph: { spacing: BODY_SPACING },
+        },
+        heading1: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading2: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading3: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading4: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading5: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading6: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+      },
+    },
     numbering: {
       config: [{
         reference: "ordered-list",
@@ -620,7 +870,12 @@ export async function markdownToWord(file: File, repair = true): Promise<Convers
       }],
     },
     sections: [{
-      properties: { page: { margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } } },
+      properties: {
+        page: {
+          size: { width: 12240, height: 15840 },
+          margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
+        },
+      },
       children: blockChildren(blocks),
     }],
   });
