@@ -130,14 +130,6 @@ export const aiProjects = [
     linkLabel: "打开在线版本",
   },
   {
-    status: "建设中",
-    title: "企业 AI 需求访谈与场景诊断助手",
-    summary:
-      "把企业“想用 AI”的模糊愿望，拆成业务问题、使用者、数据条件、风险边界、价值判断与验证计划。",
-    proof: ["访谈框架", "场景评分", "方案建议", "风险边界"],
-    imageAlt: "项目界面与访谈资料待补充",
-  },
-  {
     status: "规划中",
     title: "企业知识与投标辅助场景",
     summary:
