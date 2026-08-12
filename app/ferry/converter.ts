@@ -39,6 +39,7 @@ export type ConversionMeta = {
   formulaCount: number;
   repairedCount: number;
   normalizedFormulaCount?: number;
+  formulaResidualCount?: number;
 };
 
 export type ConversionResult = {
@@ -114,6 +115,17 @@ const LATEX_SYMBOLS: Record<string, string> = {
   rightarrow: "→",
   leftarrow: "←",
   leftrightarrow: "↔",
+  rightleftharpoons: "⇌",
+  leftrightharpoons: "⇋",
+  longrightarrow: "⟶",
+  longleftarrow: "⟵",
+  longleftrightarrow: "⟷",
+  mapsto: "↦",
+  hookrightarrow: "↪",
+  hookleftarrow: "↩",
+  circ: "°",
+  degree: "°",
+  prime: "′",
   partial: "∂",
   nabla: "∇",
   sum: "∑",
@@ -129,6 +141,15 @@ const LATEX_SYMBOLS: Record<string, string> = {
   cap: "∩",
   forall: "∀",
   exists: "∃",
+  propto: "∝",
+  equiv: "≡",
+  sim: "∼",
+  simeq: "≃",
+  ll: "≪",
+  gg: "≫",
+  cdots: "⋯",
+  ldots: "…",
+  ellipsis: "…",
 };
 
 const WORD_SYMBOLS: Record<string, string> = Object.fromEntries(
@@ -137,6 +158,24 @@ const WORD_SYMBOLS: Record<string, string> = Object.fromEntries(
 
 const FUNCTION_NAMES = new Set(["sin", "cos", "tan", "log", "ln", "exp", "lim", "max", "min"]);
 const TEXT_STYLE_COMMANDS = new Set(["text", "mathrm", "mathbf", "mathit", "mathsf", "mathtt", "mathcal", "mathbb", "mathscr", "operatorname"]);
+
+const ESCAPED_MATH_PUNCTUATION: Record<string, string> = {
+  "_": "_",
+  "^": "^",
+  "=": "=",
+  "+": "+",
+  "-": "-",
+  "*": "*",
+  "[": "[",
+  "]": "]",
+  "(": "(",
+  ")": ")",
+  "{": "{",
+  "}": "}",
+  "%": "%",
+  "#": "#",
+  "&": "&",
+};
 
 function safeStem(name: string) {
   return name.replace(/\.(md|markdown|docx)$/i, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim() || "document";
@@ -222,6 +261,8 @@ class LatexMathParser {
     while (/[A-Za-z]/.test(this.source[this.position] ?? "")) this.position += 1;
     const command = this.source.slice(start, this.position) || this.source[this.position++] || "";
 
+    if (ESCAPED_MATH_PUNCTUATION[command]) return new MathRun(ESCAPED_MATH_PUNCTUATION[command]);
+
     if (command === "frac" || command === "dfrac" || command === "tfrac") {
       return new MathFraction({ numerator: this.parseArgument(), denominator: this.parseArgument() });
     }
@@ -254,7 +295,7 @@ class LatexMathParser {
     if (command === "vert" || command === "mid") return new MathRun("|");
     if (command === "Vert" || command === "parallel") return new MathRun("‖");
     if (command === "setminus") return new MathRun("∖");
-    if ([",", ";", "!", " ", "quad", "qquad"].includes(command)) return new MathRun(" ");
+    if ([",", ";", ":", "!", " ", "quad", "qquad", "thinspace", "medspace", "thickspace"].includes(command)) return new MathRun(" ");
     return new MathRun(command ? `\\${command}` : "\\");
   }
 
@@ -292,8 +333,91 @@ class LatexMathParser {
 }
 
 export function latexToWordMath(latex: string): WordMath {
-  const children = new LatexMathParser(latex.trim()).parse();
-  return new WordMath({ children: children.length ? children : [new MathRun(latex.trim())] });
+  const normalized = normalizeLatexSource(latex);
+  const children = new LatexMathParser(normalized).parse();
+  return new WordMath({ children: children.length ? children : [new MathRun(normalized)] });
+}
+
+/**
+ * Normalize the forms most often produced when an AI response is copied
+ * through Markdown, JSON, or a Word formula object. This deliberately stays
+ * smaller than a LaTeX compiler: the output is consumed by the lightweight
+ * WordMath parser below, so predictable repair is preferable to guessing.
+ */
+export function normalizeLatexSource(value: string): string {
+  let source = String(value ?? "")
+    .replace(/\r?\n/g, " ")
+    .trim();
+
+  const wrappers: Array<[RegExp, string]> = [
+    [/^\\{1,3}\(([\s\S]*)\\{1,3}\)$/, "$1"],
+    [/^\\{1,3}\[([\s\S]*)\\{1,3}\]$/, "$1"],
+    [/^\$\$([\s\S]*)\$\$$/, "$1"],
+    [/^\$([\s\S]*)\$$/, "$1"],
+  ];
+  for (const [pattern, replacement] of wrappers) {
+    if (pattern.test(source)) {
+      source = source.replace(pattern, replacement).trim();
+      break;
+    }
+  }
+
+  // AI exports commonly double every backslash. Collapse only before a
+  // command or a math delimiter so genuine TeX line-breaks are preserved.
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = source
+      .replace(/\\{2,}(?=[A-Za-z])/g, "\\")
+      .replace(/\\{2,}(?=[{}_[\]^=+\-*%&#])/g, "\\");
+    if (next === source) break;
+    source = next;
+  }
+
+  return source
+    .replace(/\\(vert|Vert|mid|parallel)\{\}/g, "\\$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeDelimitedFormulas(text: string): { text: string; count: number } {
+  const segments = splitMarkdownMath(text);
+  let count = 0;
+  const normalized = segments.map((segment) => {
+    if (segment.type !== "math") return segment.value;
+    const value = normalizeLatexSource(segment.value);
+    if (value !== segment.value) count += 1;
+    const marker = segment.display ? `$$${value}$$` : `$${value}$`;
+    return marker;
+  });
+  return { text: normalized.join(""), count };
+}
+
+function normalizeDelimitedChunks(text: string): { text: string; count: number } {
+  const output: string[] = [];
+  let chunk: string[] = [];
+  let inCodeFence = false;
+  let count = 0;
+
+  const flush = () => {
+    if (!chunk.length) return;
+    const normalized = normalizeDelimitedFormulas(chunk.join("\n"));
+    output.push(normalized.text);
+    count += normalized.count;
+    chunk = [];
+  };
+
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      flush();
+      output.push(line);
+      inCodeFence = !inCodeFence;
+    } else if (inCodeFence) {
+      output.push(line);
+    } else {
+      chunk.push(line);
+    }
+  }
+  flush();
+  return { text: output.join("\n"), count };
 }
 
 type MathSegment = { type: "text" | "math"; value: string; display?: boolean };
@@ -304,37 +428,67 @@ export function splitMarkdownMath(value: string): MathSegment[] {
   let textStart = 0;
 
   while (cursor < value.length) {
-    if (value[cursor] !== "$" || (cursor > 0 && value[cursor - 1] === "\\")) {
+    const isDisplayDollar = value.startsWith("$$", cursor);
+    const isInlineDollar = value[cursor] === "$" && !isDisplayDollar;
+    const bracketPrefix = /^(\\+)(\[|\()/.exec(value.slice(cursor));
+    const isDisplayBracket = bracketPrefix?.[2] === "[";
+    const isInlineBracket = bracketPrefix?.[2] === "(";
+    if (!isDisplayDollar && !isInlineDollar && !isDisplayBracket && !isInlineBracket) {
       cursor += 1;
       continue;
     }
 
-    const display = value[cursor + 1] === "$";
-    const markerLength = display ? 2 : 1;
+    if (value[cursor] === "$" && cursor > 0 && value[cursor - 1] === "\\") {
+      cursor += 1;
+      continue;
+    }
+
+    const display = isDisplayDollar || isDisplayBracket;
+    const bracketSlashes = bracketPrefix?.[1] ?? "";
+    const opening = isDisplayDollar ? "$$" : isInlineDollar ? "$" : `${bracketSlashes}${isDisplayBracket ? "[" : "("}`;
+    const closing = isDisplayDollar ? "$$" : isInlineDollar ? "$" : `${bracketSlashes}${isDisplayBracket ? "]" : ")"}`;
+    const markerLength = opening.length;
     const formulaStart = cursor + markerLength;
     if (!display && /\s/.test(value[formulaStart] ?? "")) {
       cursor += 1;
       continue;
     }
 
-    let end = formulaStart;
-    while (end < value.length) {
-      if (value[end] === "\n" && !display) break;
-      if (value[end] === "$" && value[end - 1] !== "\\") {
-        if (!display || value[end + 1] === "$") break;
+    let end = value.indexOf(closing, formulaStart);
+    if (end < 0 && (isDisplayBracket || isInlineBracket)) {
+      const closingCharacter = isDisplayBracket ? "]" : ")";
+      let closingStart = -1;
+      let closingEnd = -1;
+      for (let index = formulaStart; index < value.length; index += 1) {
+        if (value[index] !== closingCharacter || index === 0 || value[index - 1] !== "\\") continue;
+        let slashStart = index - 1;
+        while (slashStart > formulaStart && value[slashStart - 1] === "\\") slashStart -= 1;
+        closingStart = slashStart;
+        closingEnd = index + 1;
+        break;
       }
-      end += 1;
+      if (closingStart >= 0) {
+        end = closingStart;
+        const actualClosing = value.slice(closingStart, closingEnd);
+        if (textStart < cursor) segments.push({ type: "text", value: value.slice(textStart, cursor) });
+        segments.push({ type: "math", value: value.slice(formulaStart, end), display });
+        cursor = end + actualClosing.length;
+        textStart = cursor;
+        continue;
+      }
+    }
+    while (isInlineDollar && end >= 0 && end > formulaStart && value[end - 1] === "\\") {
+      end = value.indexOf(closing, end + closing.length);
     }
 
-    const closed = end < value.length && (!display || value[end + 1] === "$");
-    if (!closed || end === formulaStart) {
+    if (end < 0 || end === formulaStart) {
       cursor += markerLength;
       continue;
     }
 
     if (textStart < cursor) segments.push({ type: "text", value: value.slice(textStart, cursor) });
     segments.push({ type: "math", value: value.slice(formulaStart, end), display });
-    cursor = end + markerLength;
+    cursor = end + closing.length;
     textStart = cursor;
   }
 
@@ -468,15 +622,7 @@ function isHighConfidenceFormulaLine(line: string): boolean {
 }
 
 function normalizeEscapedLatex(value: string): string {
-  return value
-    .trim()
-    .replace(/\s{2,}$/, "")
-    .replace(/\\{2,}(?=[A-Za-z])/g, "\\")
-    .replace(/\\{2,}(?=[{}])/g, "\\")
-    .replace(/\\+([_=+\-*\[\]])/g, "$1")
-    .replace(/\\(vert|Vert|mid|parallel)\{\}/g, "\\$1")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeLatexSource(value);
 }
 
 type FormulaWord = {
@@ -580,11 +726,12 @@ function stripCommonAiPreamble(text: string): string {
 }
 
 export function normalizeUnmarkedFormulas(text: string): { text: string; count: number } {
+  const delimited = normalizeDelimitedChunks(text);
   const output: string[] = [];
-  let count = 0;
+  let count = delimited.count;
   let inCodeFence = false;
 
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of delimited.text.split(/\r?\n/)) {
     if (/^\s*(?:```|~~~)/.test(line)) {
       inCodeFence = !inCodeFence;
       output.push(line);
@@ -593,7 +740,7 @@ export function normalizeUnmarkedFormulas(text: string): { text: string; count: 
 
     if (!inCodeFence && isHighConfidenceFormulaLine(line)) {
       while (output.length > 0 && output[output.length - 1].trim() === "") output.pop();
-      output.push("", "$$", normalizeEscapedLatex(line), "$$", "");
+      output.push("", "$$", normalizeLatexSource(line), "$$", "");
       count += 1;
       continue;
     }
@@ -879,16 +1026,29 @@ export async function markdownToWord(file: File, repair = true): Promise<Convers
       children: blockChildren(blocks),
     }],
   });
+  const blob = await Packer.toBlob(doc);
+  const formulaResidualCount = await auditWordFormulaSource(blob);
   return {
-    blob: await Packer.toBlob(doc),
+    blob,
     filename: `${safeStem(file.name)}.docx`,
     meta: {
       encoding: decoded.encoding,
       formulaCount: countMarkdownFormulas(decoded.text),
       repairedCount: decoded.repairedCount,
       normalizedFormulaCount: decoded.normalizedFormulaCount,
+      formulaResidualCount,
     },
   };
+}
+
+async function auditWordFormulaSource(blob: Blob): Promise<number> {
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) return 0;
+  const xml = await documentFile.async("string");
+  const documentNode = new DOMParser().parseFromString(xml, "application/xml");
+  const formulas = Array.from(documentNode.getElementsByTagNameNS(MATH_NS, "oMath"));
+  return formulas.filter((formula) => /\\[A-Za-z]+|\$\$?/.test(formula.textContent ?? "")).length;
 }
 
 function childElements(element: Element): Element[] {
