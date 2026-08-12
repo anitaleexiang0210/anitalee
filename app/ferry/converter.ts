@@ -29,6 +29,7 @@ import type { MathComponent, ParagraphChild } from "docx";
 type InlineToken = {
   type: string;
   text?: string;
+  raw?: string;
   href?: string;
   title?: string;
   tokens?: InlineToken[];
@@ -631,6 +632,27 @@ function inlineRuns(tokens: InlineToken[], options: InlineStyleOptions = {}): Pa
   return runs;
 }
 
+function tableCellRuns(cell: any, options: InlineStyleOptions = {}): ParagraphChild[] {
+  const text = typeof cell === "string" ? cell : String(cell?.text ?? "");
+  // Marked may keep a table cell's formula marker inside the cell text token.
+  // Prefer that source so the formula cannot fall back to a plain TextRun.
+  if (FORMULA_MARKER_PATTERN.test(text)) {
+    FORMULA_MARKER_PATTERN.lastIndex = 0;
+    return textAndMathRuns(text, options);
+  }
+  FORMULA_MARKER_PATTERN.lastIndex = 0;
+  if (cell?.tokens?.length) {
+    const tokenText = cell.tokens.map((token: InlineToken) => token.text ?? token.raw ?? "").join("");
+    if (FORMULA_MARKER_PATTERN.test(tokenText)) {
+      FORMULA_MARKER_PATTERN.lastIndex = 0;
+      return textAndMathRuns(tokenText, options);
+    }
+    FORMULA_MARKER_PATTERN.lastIndex = 0;
+    return inlineRuns(cell.tokens, options);
+  }
+  return textAndMathRuns(text, options);
+}
+
 function countMarkdownFormulas(text: string): number {
   return splitMarkdownMath(text).filter((segment) => segment.type === "math").length;
 }
@@ -895,26 +917,35 @@ function blockChildren(blocks: any[]): (Paragraph | Table)[] {
         }
         break;
       case "table": {
+        const headerLabel = String(block.header?.[0]?.text ?? "");
+        const isModelParameterTable = headerLabel === "模型类型";
+        const columnCount = Math.max(block.header?.length ?? 0, 1);
+        const columnWidths = isModelParameterTable
+          ? [1100, 1400, 4300, 1000, 1560]
+          : Array.from({ length: columnCount }, () => Math.floor(9360 / columnCount));
         const cellsToRow = (cells: any[], header = false) => new TableRow({
           tableHeader: header || undefined,
           cantSplit: true,
-          children: cells.map((cell) => new TableCell({
+          children: cells.map((cell, index) => new TableCell({
             verticalAlign: VerticalAlign.CENTER,
+            width: { size: columnWidths[index] ?? columnWidths[columnWidths.length - 1], type: WidthType.DXA },
+            margins: { top: 60, bottom: 60, left: 60, right: 60 },
             shading: header ? { type: "clear", fill: "F3F0E9" } : undefined,
             children: [new Paragraph({
               alignment: AlignmentType.CENTER,
               spacing: BODY_SPACING,
               children: typeof cell === "string"
-                ? textAndMathRuns(cell, { bold: header })
-                : inlineRuns(cell.tokens ?? [], { bold: header }),
+                ? tableCellRuns(cell, { bold: header })
+                : tableCellRuns(cell, { bold: header }),
             })],
           })),
         });
         children.push(new Table({
           rows: [cellsToRow(block.header ?? [], true), ...(block.rows ?? []).map((row: any[]) => cellsToRow(row))],
           width: { size: 100, type: WidthType.PERCENTAGE },
+          columnWidths,
           alignment: AlignmentType.CENTER,
-          layout: TableLayoutType.AUTOFIT,
+          layout: TableLayoutType.FIXED,
           margins: { top: 60, bottom: 60, left: 80, right: 80 },
         }));
         break;
