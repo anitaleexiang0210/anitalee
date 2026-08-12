@@ -211,8 +211,8 @@ class LatexMathParser {
         continue;
       }
 
-      let atom = this.parseAtom();
-      if (!atom) continue;
+      const atomParts = this.parseAtom();
+      if (!atomParts.length) continue;
 
       let subScript: MathComponent[] | undefined;
       let superScript: MathComponent[] | undefined;
@@ -224,35 +224,38 @@ class LatexMathParser {
         if (marker === "^") superScript = argument;
       }
 
+      let atom: MathComponent = atomParts[0];
       if (subScript && superScript) {
-        atom = new MathSubSuperScript({ children: [atom], subScript, superScript });
+        atom = new MathSubSuperScript({ children: atomParts, subScript, superScript });
       } else if (subScript) {
-        atom = new MathSubScript({ children: [atom], subScript });
+        atom = new MathSubScript({ children: atomParts, subScript });
       } else if (superScript) {
-        atom = new MathSuperScript({ children: [atom], superScript });
+        atom = new MathSuperScript({ children: atomParts, superScript });
       }
-      components.push(atom);
+      if (subScript || superScript || atomParts.length === 1) components.push(atom);
+      else components.push(...atomParts);
     }
     return components;
   }
 
-  private parseAtom(): MathComponent | null {
+  private parseAtom(): MathComponent[] {
     const current = this.source[this.position];
-    if (!current) return null;
+    if (!current) return [];
 
     if (current === "{") {
-      return new MathRun(this.readRawGroup());
+      this.position += 1;
+      return this.parseSequence("}");
     }
 
-    if (current === "\\") return this.parseCommand();
+    if (current === "\\") return [this.parseCommand()];
 
     if (current === "}") {
       this.position += 1;
-      return null;
+      return [];
     }
 
     this.position += 1;
-    return new MathRun(current);
+    return [new MathRun(current)];
   }
 
   private parseCommand(): MathComponent {
@@ -306,7 +309,7 @@ class LatexMathParser {
       return this.parseSequence("}");
     }
     const atom = this.parseAtom();
-    return atom ? [atom] : [new MathRun("")];
+    return atom.length ? atom : [new MathRun("")];
   }
 
   private readRawGroup(): string {
@@ -361,6 +364,12 @@ export function normalizeLatexSource(value: string): string {
       break;
     }
   }
+
+  // Markdown escapes punctuation such as `\_` and `\=`. Inside a formula
+  // these are structural characters, so restore them before parsing.
+  source = source
+    .replace(/\\{1,}(?=\s)/g, " ")
+    .replace(/\\([_^=+\-*%])/g, "$1");
 
   // AI exports commonly double every backslash. Collapse only before a
   // command or a math delimiter so genuine TeX line-breaks are preserved.
@@ -526,7 +535,24 @@ type InlineStyleOptions = {
   strike?: boolean;
   size?: number;
   font?: string;
+  color?: string;
+  underline?: {};
 };
+
+const BODY_FONT = { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: "Songti SC", cs: "Times New Roman" } as const;
+const CODE_FONT = { ascii: "Consolas", hAnsi: "Consolas", eastAsia: "Songti SC", cs: "Consolas" } as const;
+
+function hasCjk(value: string): boolean {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function textRun(value: string, options: InlineStyleOptions = {}): TextRun {
+  return new TextRun({
+    text: value,
+    font: hasCjk(value) ? BODY_FONT : { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: "Times New Roman", cs: "Times New Roman" },
+    ...options,
+  });
+}
 
 function textAndMathRuns(value: string, options: InlineStyleOptions = {}): ParagraphChild[] {
   const runs: ParagraphChild[] = [];
@@ -544,7 +570,7 @@ function textAndMathRuns(value: string, options: InlineStyleOptions = {}): Parag
   }
   return splitMarkdownMath(value).map((segment) => segment.type === "math"
     ? latexToWordMath(segment.value)
-    : new TextRun({ text: segment.value.replace(/`/g, ""), ...options }));
+    : textRun(segment.value.replace(/`/g, ""), options));
 }
 
 function inlineRuns(tokens: InlineToken[], options: InlineStyleOptions = {}): ParagraphChild[] {
@@ -558,7 +584,7 @@ function inlineRuns(tokens: InlineToken[], options: InlineStyleOptions = {}): Pa
           : textAndMathRuns(token.text ?? "", options)));
         break;
       case "escape":
-        if (token.text) runs.push(new TextRun({ text: token.text, ...options }));
+        if (token.text) runs.push(textRun(token.text, options));
         break;
       case "strong":
         runs.push(...(token.tokens?.length
@@ -576,14 +602,13 @@ function inlineRuns(tokens: InlineToken[], options: InlineStyleOptions = {}): Pa
           : textAndMathRuns(token.text || "", { ...options, strike: true })));
         break;
       case "codespan":
-        runs.push(new TextRun({ text: cleanText(token.text ?? ""), ...options, font: "Consolas" }));
+        runs.push(new TextRun({ text: cleanText(token.text ?? ""), ...options, font: CODE_FONT }));
         break;
       case "link":
         runs.push(
           new ExternalHyperlink({
             children: [
-              new TextRun({
-                text: cleanText(flattenText(token.tokens) || token.text || token.href || ""),
+              textRun(cleanText(flattenText(token.tokens) || token.text || token.href || ""), {
                 ...options,
                 color: "0563C1",
                 underline: {},
@@ -594,7 +619,7 @@ function inlineRuns(tokens: InlineToken[], options: InlineStyleOptions = {}): Pa
         );
         break;
       case "image":
-        runs.push(new TextRun({ text: token.text || token.title || "", ...options, italics: true, color: "77736B" }));
+        runs.push(textRun(token.text || token.title || "", { ...options, italics: true, color: "77736B" }));
         break;
       case "br":
         runs.push(new TextRun({ break: 1, ...options }));
@@ -767,6 +792,18 @@ function splitAtBreaks(tokens: InlineToken[]): InlineToken[][] {
   return groups.filter((group) => group.length > 0);
 }
 
+function containsFormulaMarker(tokens: InlineToken[]): boolean {
+  return tokens.some((token) => {
+    if (!token) return false;
+    if (FORMULA_MARKER_PATTERN.test(token.text ?? "")) {
+      FORMULA_MARKER_PATTERN.lastIndex = 0;
+      return true;
+    }
+    FORMULA_MARKER_PATTERN.lastIndex = 0;
+    return token.tokens ? containsFormulaMarker(token.tokens) : false;
+  });
+}
+
 function listParagraphs(block: any, level = 0): Paragraph[] {
   const paragraphs: Paragraph[] = [];
   for (const item of block.items ?? []) {
@@ -802,7 +839,7 @@ function blockChildren(blocks: any[]): (Paragraph | Table)[] {
           alignment: isTitle ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
           keepNext: true,
           spacing: BODY_SPACING,
-          children: inlineRuns(block.tokens ?? [], isTitle ? { bold: true, size: 28, font: "Times New Roman" } : { bold: true }),
+          children: inlineRuns(block.tokens ?? [], isTitle ? { bold: true, size: 28 } : { bold: true }),
         }));
         break;
       }
@@ -820,7 +857,9 @@ function blockChildren(blocks: any[]): (Paragraph | Table)[] {
           const isCaption = /^\*\*Table\s+\d+\s*:/i.test(raw);
           for (const tokens of splitAtBreaks(block.tokens ?? [])) {
             children.push(new Paragraph({
-              alignment: isCaption ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
+              alignment: isCaption
+                ? AlignmentType.CENTER
+                : containsFormulaMarker(tokens) ? AlignmentType.LEFT : AlignmentType.JUSTIFIED,
               keepNext: isCaption || undefined,
               spacing: BODY_SPACING,
               children: inlineRuns(tokens),
@@ -999,15 +1038,15 @@ export async function markdownToWord(file: File, repair = true): Promise<Convers
     styles: {
       default: {
         document: {
-          run: { font: "Times New Roman", size: 20 },
+          run: { font: BODY_FONT, size: 20 },
           paragraph: { spacing: BODY_SPACING },
         },
-        heading1: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
-        heading2: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
-        heading3: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
-        heading4: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
-        heading5: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
-        heading6: { run: { font: "Times New Roman", size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading1: { run: { font: BODY_FONT, size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading2: { run: { font: BODY_FONT, size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading3: { run: { font: BODY_FONT, size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading4: { run: { font: BODY_FONT, size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading5: { run: { font: BODY_FONT, size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
+        heading6: { run: { font: BODY_FONT, size: 20, bold: true }, paragraph: { spacing: BODY_SPACING } },
       },
     },
     numbering: {
