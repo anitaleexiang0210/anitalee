@@ -2,7 +2,7 @@ import { marked } from "marked";
 import JSZip from "jszip";
 import {
   AlignmentType,
-  Document,
+  Document as WordDocument,
   ExternalHyperlink,
   HeadingLevel,
   Math as WordMath,
@@ -1063,7 +1063,7 @@ export async function readMarkdownFile(file: File, repair = true): Promise<Markd
 export async function markdownToWord(file: File, repair = true): Promise<ConversionResult> {
   const decoded = await readMarkdownFile(file, repair);
   const blocks = marked.lexer(protectMarkdownMath(decoded.text));
-  const doc = new Document({
+  const doc = new WordDocument({
     creator: "文档渡口",
     title: safeStem(file.name),
     styles: {
@@ -1292,5 +1292,145 @@ export async function wordToMarkdown(file: File, repair = true): Promise<Convers
     filename: `${safeStem(file.name)}.md`,
     text: converted.text,
     meta: converted.meta,
+  };
+}
+
+type WordFormulaCandidate = {
+  run: Element;
+  text: string;
+  segments: MathSegment[];
+};
+
+function wordTextFormulaCandidates(documentNode: globalThis.Document): WordFormulaCandidate[] {
+  const candidates: WordFormulaCandidate[] = [];
+  const textNodes = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "t"));
+
+  for (const textNode of textNodes) {
+    const run = textNode.parentElement;
+    if (!run || run.localName !== "r") continue;
+    const runChildren = childElements(run);
+    const textChildren = runChildren.filter((child) => child.localName === "t");
+    const hasUnsupportedChildren = runChildren.some((child) => !["rPr", "t"].includes(child.localName));
+    if (textChildren.length !== 1 || hasUnsupportedChildren) continue;
+
+    const text = textNode.textContent ?? "";
+    const segments = splitMarkdownMath(text);
+    if (!segments.some((segment) => segment.type === "math")) continue;
+    candidates.push({ run, text, segments });
+  }
+
+  return candidates;
+}
+
+function countWordTextFormulaResiduals(documentNode: globalThis.Document): number {
+  return Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "t"))
+    .reduce((count, textNode) => {
+      const text = textNode.textContent ?? "";
+      const delimited = splitMarkdownMath(text).filter((segment) => segment.type === "math").length;
+      const bareSource = delimited === 0 && /\\(?:frac|text|mathrm|mathbf|mathcal|sqrt|cdot|times|ln|sum|int)\b/.test(text) ? 1 : 0;
+      return count + delimited + bareSource;
+    }, 0);
+}
+
+async function buildWordMathNodes(latexSources: string[]): Promise<Element[]> {
+  if (!latexSources.length) return [];
+  const formulaDocument = new WordDocument({
+    sections: [{
+      children: latexSources.map((latex) => new Paragraph({ children: [latexToWordMath(latex)] })),
+    }],
+  });
+  const formulaBlob = await Packer.toBlob(formulaDocument);
+  const formulaZip = await JSZip.loadAsync(await formulaBlob.arrayBuffer());
+  const formulaXml = await formulaZip.file("word/document.xml")?.async("string");
+  if (!formulaXml) throw new Error("无法生成 Word 公式结构");
+  const formulaNode = new DOMParser().parseFromString(formulaXml, "application/xml");
+  return Array.from(formulaNode.getElementsByTagNameNS(MATH_NS, "oMath"));
+}
+
+function cloneTextRun(documentNode: globalThis.Document, sourceRun: Element, text: string): Element {
+  const run = documentNode.createElementNS(WORD_NS, "w:r");
+  const runProperties = childElements(sourceRun).find((child) => child.localName === "rPr");
+  if (runProperties) run.appendChild(documentNode.importNode(runProperties, true));
+  const textNode = documentNode.createElementNS(WORD_NS, "w:t");
+  if (/^\s|\s$/.test(text)) {
+    textNode.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:space", "preserve");
+  }
+  textNode.textContent = text;
+  run.appendChild(textNode);
+  return run;
+}
+
+export async function inspectWordOptimization(file: File): Promise<ConversionMeta> {
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) throw new Error("不是可读取的 Word 文档");
+  const documentNode = new DOMParser().parseFromString(await documentFile.async("string"), "application/xml");
+  const candidates = wordTextFormulaCandidates(documentNode);
+  const formulaCount = candidates.reduce(
+    (count, candidate) => count + candidate.segments.filter((segment) => segment.type === "math").length,
+    0,
+  );
+  const detectedFormulaSourceCount = countWordTextFormulaResiduals(documentNode);
+  return {
+    encoding: "DOCX / UTF-8",
+    formulaCount,
+    repairedCount: 0,
+    normalizedFormulaCount: 0,
+    formulaResidualCount: Math.max(0, detectedFormulaSourceCount - formulaCount),
+  };
+}
+
+export async function optimizeWord(file: File): Promise<ConversionResult> {
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) throw new Error("不是可读取的 Word 文档");
+
+  const xml = await documentFile.async("string");
+  const documentNode = new DOMParser().parseFromString(xml, "application/xml");
+  const candidates = wordTextFormulaCandidates(documentNode);
+  const latexSources = candidates.flatMap((candidate) => candidate.segments
+    .filter((segment): segment is MathSegment & { type: "math" } => segment.type === "math")
+    .map((segment) => normalizeLatexSource(segment.value)));
+  const formulaNodes = await buildWordMathNodes(latexSources);
+  let formulaIndex = 0;
+  let repairedCount = 0;
+
+  for (const candidate of candidates) {
+    const parent = candidate.run.parentNode;
+    if (!parent) continue;
+    const replacements: Node[] = [];
+    for (const segment of candidate.segments) {
+      if (segment.type === "text") {
+        if (segment.value) replacements.push(cloneTextRun(documentNode, candidate.run, segment.value));
+        continue;
+      }
+      const formulaNode = formulaNodes[formulaIndex++];
+      if (!formulaNode) continue;
+      replacements.push(documentNode.importNode(formulaNode, true));
+      repairedCount += 1;
+    }
+    for (const replacement of replacements) parent.insertBefore(replacement, candidate.run);
+    parent.removeChild(candidate.run);
+  }
+
+  const serialized = new XMLSerializer().serializeToString(documentNode);
+  zip.file("word/document.xml", serialized);
+  const outputBlob = await zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  const outputDocument = new DOMParser().parseFromString(serialized, "application/xml");
+  const formulaResidualCount = countWordTextFormulaResiduals(outputDocument);
+
+  return {
+    blob: outputBlob,
+    filename: `${safeStem(file.name)}-优化后.docx`,
+    meta: {
+      encoding: "DOCX / UTF-8",
+      formulaCount: latexSources.length,
+      repairedCount: 0,
+      normalizedFormulaCount: repairedCount,
+      formulaResidualCount,
+    },
   };
 }

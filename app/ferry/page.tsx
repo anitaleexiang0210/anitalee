@@ -3,14 +3,16 @@
 import { ChangeEvent, DragEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { marked } from "marked";
 import {
+  inspectWordOptimization,
   markdownToWord,
+  optimizeWord,
   readMarkdownFile,
   splitMarkdownMath,
   wordToMarkdown,
 } from "./converter";
 import type { ConversionMeta } from "./converter";
 
-type Direction = "md-to-word" | "word-to-md";
+type Direction = "md-to-word" | "word-to-md" | "word-optimize";
 type Message = { kind: "success" | "error"; text: string } | null;
 type Preview = { loading: boolean; html: string; note?: string } | null;
 
@@ -26,7 +28,7 @@ function detectDirection(file: File | null): Direction | null {
   if (!file) return null;
   const name = file.name.toLowerCase();
   if (name.endsWith(".md") || name.endsWith(".markdown")) return "md-to-word";
-  if (name.endsWith(".docx")) return "word-to-md";
+  if (name.endsWith(".docx")) return "word-optimize";
   return null;
 }
 
@@ -86,8 +88,8 @@ export default function FerryPage() {
     }
   }, []);
 
-  const accept = direction === "word-to-md" ? ".docx" : ".md,.markdown";
-  const fileTag = direction === "word-to-md" ? "DOCX" : "MD";
+  const accept = direction === "md-to-word" ? ".md,.markdown" : ".docx";
+  const fileTag = direction === "md-to-word" ? "MD" : "DOCX";
 
   async function loadPreview(candidate: File, selectedDirection: Direction, repair = repairMojibake) {
     setPreview({ loading: true, html: "" });
@@ -111,7 +113,7 @@ export default function FerryPage() {
             normalizedFormulaCount: decoded.normalizedFormulaCount,
           }),
         });
-      } else {
+      } else if (selectedDirection === "word-to-md") {
         const converted = await wordToMarkdown(candidate, repair);
         const html = await marked.parse(converted.text ?? "");
         const truncated = html.substring(0, 16000);
@@ -119,6 +121,16 @@ export default function FerryPage() {
           ? '<p class="ferry-tool-preview-cut">… 预览已截断</p>'
           : "";
         setPreview({ loading: false, html: truncated + suffix, note: metaNote(converted.meta) });
+      } else {
+        const meta = await inspectWordOptimization(candidate);
+        const formulaMessage = meta.formulaCount > 0
+          ? `检测到 ${meta.formulaCount} 个可自动修复的公式源码。`
+          : "没有检测到可自动修复的公式源码。";
+        setPreview({
+          loading: false,
+          html: `<p>${formulaMessage}</p><p>首版只局部替换高置信度公式，原有正文、表格、图片和样式会尽量保留。</p>`,
+          note: metaNote(meta),
+        });
       }
     } catch (error) {
       console.error(error);
@@ -141,16 +153,20 @@ export default function FerryPage() {
       setMessage({ kind: "error", text: "文件不能超过 25 MB。" });
       return false;
     }
-    if (direction !== detected) setDirection(detected);
+    if (direction === "md-to-word" && detected === "word-optimize") setDirection("word-optimize");
+    if (direction !== "md-to-word" && detected === "md-to-word") setDirection("md-to-word");
     return true;
   }
 
   function chooseFile(candidate?: File) {
     if (!candidate || !validateFile(candidate)) return;
-    const detected = detectDirection(candidate) || direction;
+    const detected = detectDirection(candidate);
+    const selectedDirection = detected === "md-to-word"
+      ? "md-to-word"
+      : direction === "md-to-word" ? "word-optimize" : direction;
     setFile(candidate);
     setMessage(null);
-    loadPreview(candidate, detected);
+    loadPreview(candidate, selectedDirection);
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -180,7 +196,7 @@ export default function FerryPage() {
 
   function toggleRepair(next: boolean) {
     setRepairMojibake(next);
-    if (file) loadPreview(file, detectDirection(file) || direction, next);
+    if (file) loadPreview(file, direction, next);
   }
 
   async function convert() {
@@ -190,12 +206,14 @@ export default function FerryPage() {
     try {
       const result = direction === "md-to-word"
         ? await markdownToWord(file, repairMojibake)
-        : await wordToMarkdown(file, repairMojibake);
+        : direction === "word-to-md"
+          ? await wordToMarkdown(file, repairMojibake)
+          : await optimizeWord(file);
       triggerDownload(result.blob, result.filename);
       const detail = metaNote(result.meta);
       setMessage({
         kind: "success",
-        text: `转换完成，已下载 ${result.filename}${detail ? `。${detail}` : ""}`,
+        text: `${direction === "word-optimize" ? "优化" : "转换"}完成，已下载 ${result.filename}${detail ? `。${detail}` : ""}`,
       });
     } catch (error) {
       console.error(error);
@@ -221,13 +239,13 @@ export default function FerryPage() {
 
         <section className="ferry-tool-hero">
           <div className="ferry-tool-copy">
-            <p className="ferry-tool-eyebrow">Local document converter</p>
+            <p className="ferry-tool-eyebrow">Local AI document converter & repair</p>
             <h1>
-              Markdown 与 Word，
-              <span>来回都顺手。</span>
+              AI 文档，
+              <span>转好，也修好。</span>
             </h1>
             <p>
-              不上传云端，不打乱内容结构。拖入文件，完成 Markdown 与 Word 的双向转换；常见论文公式也会统一整理为可编辑的 Word 公式。
+              不上传云端。完成 Markdown 与 Word 双向转换，也能把 AI 导出 Word 中裸露的常见论文公式源码，修复为可编辑的 Word 公式。
             </p>
             <ul className="ferry-tool-promise">
               <li>全程本地处理</li>
@@ -235,6 +253,7 @@ export default function FerryPage() {
               <li>基础结构与图片打包</li>
               <li>常见论文公式与表格公式</li>
               <li>AI 双重转义与典型中文乱码</li>
+              <li>Word 公式修复首版</li>
             </ul>
           </div>
 
@@ -255,6 +274,13 @@ export default function FerryPage() {
                   type="button"
                 >
                   Word → MD
+                </button>
+                <button
+                  className={direction === "word-optimize" ? "active" : ""}
+                  onClick={() => switchDirection("word-optimize")}
+                  type="button"
+                >
+                  Word 优化
                 </button>
               </div>
             </div>
@@ -288,7 +314,7 @@ export default function FerryPage() {
                     <div className="ferry-tool-file-meta">
                       <p className="ferry-tool-file-name">{file.name}</p>
                       <p className="ferry-tool-file-size">
-                        {formatBytes(file.size)} · {direction === "word-to-md" ? "将输出 Markdown .md" : "将输出 Word .docx"}
+                        {formatBytes(file.size)} · {direction === "word-to-md" ? "将输出 Markdown .md" : direction === "word-optimize" ? "将输出优化后的 Word .docx" : "将输出 Word .docx"}
                       </p>
                     </div>
                     <span className="ferry-tool-change">更换文件</span>
@@ -297,7 +323,7 @@ export default function FerryPage() {
                   <div>
                     <span className="ferry-tool-file-glyph" aria-hidden="true">{fileTag}</span>
                     <p className="ferry-tool-drop-title">
-                      {direction === "md-to-word" ? "拖入 .md 文件" : "拖入 .docx 文件"}
+                      {direction === "md-to-word" ? "拖入 .md 文件" : direction === "word-optimize" ? "拖入需要修复的 .docx" : "拖入 .docx 文件"}
                     </p>
                     <p className="ferry-tool-drop-note">
                       {direction === "md-to-word" ? "支持 .md、.markdown" : "支持 .docx"} · 最大 25 MB
@@ -306,17 +332,27 @@ export default function FerryPage() {
                 )}
               </div>
 
-              <label className="ferry-tool-repair">
-                <input
-                  type="checkbox"
-                  checked={repairMojibake}
-                  onChange={(event) => toggleRepair(event.target.checked)}
-                />
-                <span>
-                  <strong>修复常见中文乱码</strong>
-                  <small>仅处理能够可靠还原的典型乱码，原文已损坏时可能无法恢复</small>
-                </span>
-              </label>
+              {direction === "word-optimize" ? (
+                <div className="ferry-tool-repair ferry-tool-repair-static">
+                  <span className="ferry-tool-repair-icon" aria-hidden="true">✓</span>
+                  <span>
+                    <strong>修复 Word 中裸露的公式源码</strong>
+                    <small>首版支持普通文本里的 `$...$`、`$$...$$` 等常见公式，复杂排版仍需下载后检查</small>
+                  </span>
+                </div>
+              ) : (
+                <label className="ferry-tool-repair">
+                  <input
+                    type="checkbox"
+                    checked={repairMojibake}
+                    onChange={(event) => toggleRepair(event.target.checked)}
+                  />
+                  <span>
+                    <strong>修复常见中文乱码</strong>
+                    <small>仅处理能够可靠还原的典型乱码，原文已损坏时可能无法恢复</small>
+                  </span>
+                </label>
+              )}
 
               {preview && (preview.loading || preview.html) && (
                 <div className="ferry-tool-preview">
@@ -332,7 +368,7 @@ export default function FerryPage() {
 
               <div className="ferry-tool-actions">
                 <button className="ferry-tool-primary" type="button" onClick={convert} disabled={!file || busy}>
-                  {busy ? "正在转换..." : direction === "word-to-md" ? "转换并下载 Markdown" : "转换并下载 Word"}
+                  {busy ? "正在处理..." : direction === "word-to-md" ? "转换并下载 Markdown" : direction === "word-optimize" ? "优化并下载 Word" : "转换并下载 Word"}
                 </button>
                 <p className="ferry-tool-privacy">文件不离开浏览器，适合内容流转</p>
               </div>
@@ -360,14 +396,14 @@ export default function FerryPage() {
               <span>02</span>
               <h2>结果可检查</h2>
             </header>
-            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。转换后会检查公式源码残留；最新中文长论文样本识别 51 个公式，残留为 0。</p>
+            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。Markdown 长论文样本识别 51 个公式；Word 修复样本修复 46 个公式，源码残留均为 0。</p>
           </article>
           <article>
             <header>
               <span>03</span>
               <h2>边界清楚</h2>
             </header>
-            <p>支持常见论文公式，不等于完整 LaTeX 编译器。自定义宏、TikZ、复杂矩阵、分段函数、图片公式和复杂 Word 布局仍需人工检查。</p>
+            <p>Word 优化首版只修复高置信度公式源码，不会自动统一字体、行距、页边距和整篇论文版式；复杂公式和布局仍需人工检查。</p>
           </article>
         </section>
 

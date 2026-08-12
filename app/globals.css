@@ -1274,13 +1274,13 @@ h1 {
 
 .ferry-tool-switch {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   padding: 4px;
   background: #eeeee7;
   border-radius: 13px;
   flex: 1 1 auto;
-  max-width: 320px;
+  max-width: 470px;
 }
 
 .ferry-tool-switch button {
@@ -1422,6 +1422,23 @@ h1 {
   height: 16px;
   margin: 2px 0 0;
   accent-color: var(--ferry-green);
+}
+
+.ferry-tool-repair-static {
+  cursor: default;
+}
+
+.ferry-tool-repair-icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  background: var(--ferry-green);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .ferry-tool-repair span {
