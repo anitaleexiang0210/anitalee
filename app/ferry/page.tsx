@@ -227,13 +227,14 @@ export default function FerryPage() {
               <span>来回都顺手。</span>
             </h1>
             <p>
-              不上传云端，不打乱内容结构。拖入文件，一次完成正文、标题、列表、链接、代码块和简单表格的双向转换。
+              不上传云端，不打乱内容结构。拖入文件，完成 Markdown 与 Word 的双向转换；常见论文公式也会统一整理为可编辑的 Word 公式。
             </p>
             <ul className="ferry-tool-promise">
               <li>全程本地处理</li>
               <li>打开即用</li>
-              <li>适合文档整理和内容流转</li>
-              <li>支持常见 LaTeX 公式与多种中文编码</li>
+              <li>基础结构与图片打包</li>
+              <li>常见论文公式与表格公式</li>
+              <li>AI 双重转义与典型中文乱码</li>
             </ul>
           </div>
 
@@ -350,23 +351,23 @@ export default function FerryPage() {
           <article>
             <header>
               <span>01</span>
-              <h2>结构优先</h2>
+              <h2>公式规范化</h2>
             </header>
-            <p>标题、段落和列表会尽量保持结构；标准 LaTeX 与高置信度的未标记公式行会转为 Word 可编辑公式。</p>
+            <p>标题、段落、列表、表格和图片会尽量保持结构；常见分式、上下标、单位、化学式和 AI 双重转义公式会转为 Word 可编辑公式。</p>
           </article>
           <article>
             <header>
               <span>02</span>
-              <h2>本地处理</h2>
+              <h2>结果可检查</h2>
             </header>
-            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。已损坏的乱码无法凭空恢复。</p>
+            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。转换后会检查公式源码残留；最新中文长论文样本识别 51 个公式，残留为 0。</p>
           </article>
           <article>
             <header>
               <span>03</span>
               <h2>边界清楚</h2>
             </header>
-            <p>文本框、SmartArt、多栏、复杂表格、复杂公式和精确分页不保证无损还原。</p>
+            <p>支持常见论文公式，不等于完整 LaTeX 编译器。自定义宏、TikZ、复杂矩阵、分段函数、图片公式和复杂 Word 布局仍需人工检查。</p>
           </article>
         </section>
 

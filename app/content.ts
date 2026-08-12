@@ -122,8 +122,8 @@ export const aiProjects = [
     status: "已上线",
     title: "文档渡口 · Markdown 与 Word 互转",
     summary:
-      "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，不上传云端，不破坏结构。支持标题、列表、链接、代码块、表格与图片打包；并尝试处理常见 LaTeX 公式、UTF-8 / UTF-16 / GBK 中文编码与可逆的典型乱码。适合经常在编辑器和 Word 之间切换的内容与产品同事。",
-    proof: ["本地处理", "图片打包", "公式与编码", "双向转换"],
+      "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，不上传云端。基础结构、图片打包、中文编码和典型乱码修复之外，已补齐常见论文公式规范化：支持中英文混排、上下标、分式、单位、化学式、表格公式和 AI 双重转义，并输出可编辑的 Word 公式。最新长论文回归识别 51 个公式，源码残留检查为 0。",
+    proof: ["本地处理", "常见论文公式", "乱码与编码", "结果审计"],
     image: "/ferry-tool.png",
     imageAlt: "文档渡口在线工具界面截图",
     href: "https://anitalee.cn/ferry",
