@@ -1457,6 +1457,55 @@ h1 {
   line-height: 1.5;
 }
 
+.ferry-tool-format-report {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ferry-line);
+  border-radius: 10px;
+  background: #fffdfa;
+}
+
+.ferry-tool-format-report > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ferry-green);
+  font-size: 12px;
+}
+
+.ferry-tool-format-report strong {
+  color: var(--ferry-ink);
+}
+
+.ferry-tool-format-report p {
+  margin: 0;
+  color: var(--ferry-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ferry-tool-format-report dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+}
+
+.ferry-tool-format-report dl div {
+  display: flex;
+  gap: 5px;
+  color: var(--ferry-muted);
+  font-size: 12px;
+}
+
+.ferry-tool-format-report dd {
+  margin: 0;
+  color: var(--ferry-ink);
+  font-weight: 750;
+}
+
 .ferry-tool-actions {
   display: grid;
   grid-template-columns: 1fr auto;

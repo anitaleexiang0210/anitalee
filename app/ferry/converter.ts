@@ -42,6 +42,7 @@ export type ConversionMeta = {
   normalizedFormulaCount?: number;
   formulaResidualCount?: number;
   repairReport?: WordRepairReport;
+  formatReport?: WordFormatReport;
 };
 
 export type WordRepairIssue = {
@@ -57,6 +58,19 @@ export type WordRepairReport = {
   repairedCount: number;
   remainingCount: number;
   issues: WordRepairIssue[];
+};
+
+export type WordFormatReport = {
+  enabled: boolean;
+  fontRunCount: number;
+  chineseRunCount: number;
+  englishRunCount: number;
+  chineseParagraphCount: number;
+  englishParagraphCount: number;
+};
+
+export type WordOptimizationOptions = {
+  formatDocument?: boolean;
 };
 
 export type ConversionResult = {
@@ -1510,12 +1524,129 @@ function cloneTextRun(documentNode: globalThis.Document, sourceRun: Element, tex
   return run;
 }
 
-export async function inspectWordOptimization(file: File): Promise<ConversionMeta> {
+function ensureChildElement(documentNode: globalThis.Document, parent: Element, localName: string): Element {
+  const existing = childElements(parent).find((child) => child.localName === localName);
+  if (existing) return existing;
+  const created = documentNode.createElementNS(WORD_NS, `w:${localName}`);
+  if (localName === "rPr" || localName === "pPr" || localName === "rFonts") {
+    parent.insertBefore(created, parent.firstChild);
+  } else {
+    parent.appendChild(created);
+  }
+  return created;
+}
+
+function setWordFont(documentNode: globalThis.Document, run: Element, font: string): void {
+  const properties = ensureChildElement(documentNode, run, "rPr");
+  const fonts = ensureChildElement(documentNode, properties, "rFonts");
+  for (const attribute of ["ascii", "hAnsi", "eastAsia", "cs"] as const) {
+    fonts.setAttributeNS(WORD_NS, `w:${attribute}`, font);
+  }
+}
+
+function setFirstLineIndent(documentNode: globalThis.Document, paragraph: Element, twips: string): void {
+  const properties = ensureChildElement(documentNode, paragraph, "pPr");
+  const indent = ensureChildElement(documentNode, properties, "ind");
+  indent.setAttributeNS(WORD_NS, "w:firstLine", twips);
+  indent.removeAttributeNS(WORD_NS, "w:hanging");
+}
+
+function clearFirstLineIndent(documentNode: globalThis.Document, paragraph: Element): void {
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  if (!properties) return;
+  const indent = childElements(properties).find((child) => child.localName === "ind");
+  if (!indent) return;
+  indent.removeAttributeNS(WORD_NS, "w:firstLine");
+  indent.removeAttributeNS(WORD_NS, "w:hanging");
+}
+
+function paragraphHasCjkText(paragraph: Element): boolean {
+  return /[\u3400-\u9fff]/.test(paragraphText(paragraph));
+}
+
+function paragraphHasLatinText(paragraph: Element): boolean {
+  return /[A-Za-z]/.test(paragraphText(paragraph));
+}
+
+function isWordHeading(paragraph: Element, text: string): boolean {
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  const style = properties && childElements(properties).find((child) => child.localName === "pStyle");
+  const styleValue = style?.getAttributeNS(WORD_NS, "val") ?? "";
+  return styleValue.toLowerCase().includes("heading")
+    || /^\s*(?:\d+(?:\.\d+)*[\s、.]|摘要\s*$|引言\s*$|结论\s*$|参考文献\s*$)/.test(text);
+}
+
+function isInsideWordTable(paragraph: Element): boolean {
+  return Boolean(closestWordElement(paragraph.parentElement, "tbl"));
+}
+
+function emptyWordFormatReport(enabled = false): WordFormatReport {
+  return {
+    enabled,
+    fontRunCount: 0,
+    chineseRunCount: 0,
+    englishRunCount: 0,
+    chineseParagraphCount: 0,
+    englishParagraphCount: 0,
+  };
+}
+
+function formatWordDocument(documentNode: globalThis.Document): WordFormatReport {
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  let fontRunCount = 0;
+  let chineseRunCount = 0;
+  let englishRunCount = 0;
+  let chineseParagraphCount = 0;
+  let englishParagraphCount = 0;
+
+  for (const paragraph of paragraphs) {
+    const text = paragraphText(paragraph);
+    if (!text) continue;
+    const hasCjk = paragraphHasCjkText(paragraph);
+    const hasLatin = paragraphHasLatinText(paragraph);
+    const insideTable = isInsideWordTable(paragraph);
+    const heading = isWordHeading(paragraph, text);
+    if (hasCjk && !insideTable && !heading) {
+      chineseParagraphCount += 1;
+      setFirstLineIndent(documentNode, paragraph, "420");
+    } else if (!insideTable) {
+      clearFirstLineIndent(documentNode, paragraph);
+    }
+    if (hasLatin && !insideTable && !heading) englishParagraphCount += 1;
+
+    const runs = Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "r"));
+    for (const run of runs) {
+      if (run.getElementsByTagNameNS(MATH_NS, "oMath").length > 0) continue;
+      const runText = Array.from(run.getElementsByTagNameNS(WORD_NS, "t"))
+        .map((node) => node.textContent ?? "")
+        .join("");
+      if (!runText) continue;
+      const runHasCjk = /[\u3400-\u9fff]/.test(runText);
+      const runHasLatin = /[A-Za-z]/.test(runText);
+      setWordFont(documentNode, run, runHasCjk ? "SimSun" : "Times New Roman");
+      fontRunCount += 1;
+      if (runHasCjk) chineseRunCount += 1;
+      if (runHasLatin) englishRunCount += 1;
+    }
+  }
+
+  return {
+    enabled: true,
+    fontRunCount,
+    chineseRunCount,
+    englishRunCount,
+    chineseParagraphCount,
+    englishParagraphCount,
+  };
+}
+
+export async function inspectWordOptimization(file: File, options: WordOptimizationOptions = {}): Promise<ConversionMeta> {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) throw new Error("不是可读取的 Word 文档");
   const documentNode = new DOMParser().parseFromString(await documentFile.async("string"), "application/xml");
   const repairReport = inspectWordRepairReport(documentNode);
+  const formatReport = options.formatDocument ? formatWordDocument(documentNode) : emptyWordFormatReport();
   return {
     encoding: "DOCX / UTF-8",
     formulaCount: repairReport.detectedCount,
@@ -1523,10 +1654,11 @@ export async function inspectWordOptimization(file: File): Promise<ConversionMet
     normalizedFormulaCount: 0,
     formulaResidualCount: repairReport.remainingCount,
     repairReport,
+    formatReport,
   };
 }
 
-export async function optimizeWord(file: File): Promise<ConversionResult> {
+export async function optimizeWord(file: File, options: WordOptimizationOptions = {}): Promise<ConversionResult> {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) throw new Error("不是可读取的 Word 文档");
@@ -1561,12 +1693,14 @@ export async function optimizeWord(file: File): Promise<ConversionResult> {
   }
 
   const serialized = new XMLSerializer().serializeToString(documentNode);
-  zip.file("word/document.xml", serialized);
-  const outputBlob = await zip.generateAsync({
+  const outputDocument = new DOMParser().parseFromString(serialized, "application/xml");
+  const formatReport = options.formatDocument ? formatWordDocument(outputDocument) : emptyWordFormatReport();
+  const finalSerialized = options.formatDocument ? new XMLSerializer().serializeToString(outputDocument) : serialized;
+  zip.file("word/document.xml", finalSerialized);
+  const finalBlob = await zip.generateAsync({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
-  const outputDocument = new DOMParser().parseFromString(serialized, "application/xml");
   const outputReport = inspectWordRepairReport(outputDocument);
   const repairReport: WordRepairReport = {
     detectedCount: inputReport.detectedCount,
@@ -1577,7 +1711,7 @@ export async function optimizeWord(file: File): Promise<ConversionResult> {
   };
 
   return {
-    blob: outputBlob,
+    blob: finalBlob,
     filename: `${safeStem(file.name)}-优化后.docx`,
     meta: {
       encoding: "DOCX / UTF-8",
@@ -1586,6 +1720,7 @@ export async function optimizeWord(file: File): Promise<ConversionResult> {
       normalizedFormulaCount: repairedCount,
       formulaResidualCount: repairReport.remainingCount,
       repairReport,
+      formatReport,
     },
   };
 }

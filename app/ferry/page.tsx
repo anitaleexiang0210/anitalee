@@ -12,6 +12,7 @@ import {
 } from "./converter";
 import type { ConversionMeta } from "./converter";
 import type { WordRepairReport } from "./converter";
+import type { WordFormatReport } from "./converter";
 
 type Direction = "md-to-word" | "word-to-md" | "word-optimize";
 type Message = { kind: "success" | "error"; text: string } | null;
@@ -20,6 +21,7 @@ type Preview = {
   html: string;
   note?: string;
   repairReport?: WordRepairReport;
+  formatReport?: WordFormatReport;
   reportPhase?: "inspection" | "result";
 } | null;
 
@@ -57,6 +59,9 @@ function metaNote(meta: ConversionMeta): string {
   if ((meta.normalizedFormulaCount ?? 0) > 0) notes.push(`自动整理：${meta.normalizedFormulaCount} 个`);
   if (meta.repairedCount > 0) notes.push(`修复疑似乱码：${meta.repairedCount} 处`);
   if ((meta.formulaResidualCount ?? 0) > 0) notes.push(`有 ${meta.formulaResidualCount} 个公式需要人工检查`);
+  if (meta.formatReport?.enabled) {
+    notes.push(`基础格式整理：中文段落 ${meta.formatReport.chineseParagraphCount} 段、英文段落 ${meta.formatReport.englishParagraphCount} 段`);
+  }
   return notes.join(" · ");
 }
 
@@ -119,6 +124,24 @@ function RepairReport({ report, phase }: { report: WordRepairReport; phase: "ins
   );
 }
 
+function FormatReport({ report }: { report: WordFormatReport }) {
+  if (!report.enabled) return null;
+  return (
+    <section className="ferry-tool-format-report" aria-label="基础论文格式整理结果">
+      <div>
+        <span>基础论文格式整理</span>
+        <strong>已写入下载文件</strong>
+      </div>
+      <p>中文正文宋体并首行缩进，英文正文不缩进；标题和表格不强行套用正文格式。</p>
+      <dl>
+        <div><dt>中文段落</dt><dd>{report.chineseParagraphCount}</dd></div>
+        <div><dt>英文段落</dt><dd>{report.englishParagraphCount}</dd></div>
+        <div><dt>文字样式</dt><dd>{report.fontRunCount} 处</dd></div>
+      </dl>
+    </section>
+  );
+}
+
 export default function FerryPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [direction, setDirection] = useState<Direction>("md-to-word");
@@ -128,6 +151,7 @@ export default function FerryPage() {
   const [message, setMessage] = useState<Message>(null);
   const [preview, setPreview] = useState<Preview>(null);
   const [repairMojibake, setRepairMojibake] = useState(true);
+  const [formatDocument, setFormatDocument] = useState(true);
   const [pageCount, setPageCount] = useState(1637);
 
   useEffect(() => {
@@ -157,7 +181,12 @@ export default function FerryPage() {
   const accept = direction === "md-to-word" ? ".md,.markdown" : ".docx";
   const fileTag = direction === "md-to-word" ? "MD" : "DOCX";
 
-  async function loadPreview(candidate: File, selectedDirection: Direction, repair = repairMojibake) {
+  async function loadPreview(
+    candidate: File,
+    selectedDirection: Direction,
+    repair = repairMojibake,
+    format = formatDocument,
+  ) {
     setPreview({ loading: true, html: "" });
     try {
       if (selectedDirection === "md-to-word") {
@@ -188,7 +217,7 @@ export default function FerryPage() {
           : "";
         setPreview({ loading: false, html: truncated + suffix, note: metaNote(converted.meta) });
       } else {
-        const meta = await inspectWordOptimization(candidate);
+        const meta = await inspectWordOptimization(candidate, { formatDocument: format });
         const repairableCount = meta.repairReport?.repairableCount ?? meta.formulaCount;
         const remainingCount = meta.repairReport?.remainingCount ?? 0;
         const formulaMessage = meta.formulaCount > 0
@@ -196,9 +225,10 @@ export default function FerryPage() {
           : "没有检测到可自动修复的公式源码。";
         setPreview({
           loading: false,
-          html: `<p>${formulaMessage}</p><p>首版只局部替换高置信度公式，原有正文、表格、图片和样式会尽量保留。</p>`,
+          html: `<p>${formulaMessage}</p><p>${format ? "同时会整理中文正文的宋体与首行缩进，并保留英文正文不缩进。" : "已关闭基础论文格式整理，仅处理公式修复。"}</p><p>原有正文、表格、图片和样式会尽量保留。</p>`,
           note: metaNote(meta),
           repairReport: meta.repairReport,
+          formatReport: meta.formatReport,
           reportPhase: "inspection",
         });
       }
@@ -269,6 +299,11 @@ export default function FerryPage() {
     if (file) loadPreview(file, direction, next);
   }
 
+  function toggleFormat(next: boolean) {
+    setFormatDocument(next);
+    if (file && direction === "word-optimize") loadPreview(file, direction, repairMojibake, next);
+  }
+
   async function convert() {
     if (!file || busy) return;
     setBusy(true);
@@ -278,7 +313,7 @@ export default function FerryPage() {
         ? await markdownToWord(file, repairMojibake)
         : direction === "word-to-md"
           ? await wordToMarkdown(file, repairMojibake)
-          : await optimizeWord(file);
+          : await optimizeWord(file, { formatDocument });
       triggerDownload(result.blob, result.filename);
       const detail = metaNote(result.meta);
       if (direction === "word-optimize" && result.meta.repairReport) {
@@ -287,6 +322,7 @@ export default function FerryPage() {
           html: current?.html ?? "",
           note: metaNote(result.meta),
           repairReport: result.meta.repairReport,
+          formatReport: result.meta.formatReport,
           reportPhase: "result",
         }));
       }
@@ -324,7 +360,7 @@ export default function FerryPage() {
               <span>转好，也修好。</span>
             </h1>
             <p>
-              不上传云端。完成 Markdown 与 Word 双向转换，也能把 AI 导出 Word 中裸露的常见论文公式源码，修复为可编辑的 Word 公式。
+              不上传云端。完成 Markdown 与 Word 双向转换，也能把 AI 导出 Word 中裸露的常见论文公式源码，修复为可编辑的 Word 公式，并做基础论文格式整理。
             </p>
             <ul className="ferry-tool-promise">
               <li>全程本地处理</li>
@@ -332,7 +368,7 @@ export default function FerryPage() {
               <li>基础结构与图片打包</li>
               <li>常见论文公式与表格公式</li>
               <li>AI 双重转义与典型中文乱码</li>
-              <li>Word 公式修复首版</li>
+              <li>Word 公式修复与基础格式整理</li>
             </ul>
           </div>
 
@@ -402,7 +438,7 @@ export default function FerryPage() {
                   <div>
                     <span className="ferry-tool-file-glyph" aria-hidden="true">{fileTag}</span>
                     <p className="ferry-tool-drop-title">
-                      {direction === "md-to-word" ? "拖入 .md 文件" : direction === "word-optimize" ? "拖入需要修复的 .docx" : "拖入 .docx 文件"}
+                      {direction === "md-to-word" ? "拖入 .md 文件" : direction === "word-optimize" ? "拖入需要优化的 .docx" : "拖入 .docx 文件"}
                     </p>
                     <p className="ferry-tool-drop-note">
                       {direction === "md-to-word" ? "支持 .md、.markdown" : "支持 .docx"} · 最大 25 MB
@@ -412,13 +448,26 @@ export default function FerryPage() {
               </div>
 
               {direction === "word-optimize" ? (
-                <div className="ferry-tool-repair ferry-tool-repair-static">
-                  <span className="ferry-tool-repair-icon" aria-hidden="true">✓</span>
-                  <span>
-                    <strong>修复 Word 中裸露的公式源码</strong>
-                    <small>首版支持普通文本里的 `$...$`、`$$...$$` 等常见公式，复杂排版仍需下载后检查</small>
-                  </span>
-                </div>
+                <>
+                  <div className="ferry-tool-repair ferry-tool-repair-static">
+                    <span className="ferry-tool-repair-icon" aria-hidden="true">✓</span>
+                    <span>
+                      <strong>修复 Word 中裸露的公式源码</strong>
+                      <small>支持普通文本里的 `$...$`、`$$...$$` 等常见公式，复杂排版仍需下载后检查</small>
+                    </span>
+                  </div>
+                  <label className="ferry-tool-repair">
+                    <input
+                      type="checkbox"
+                      checked={formatDocument}
+                      onChange={(event) => toggleFormat(event.target.checked)}
+                    />
+                    <span>
+                      <strong>基础论文格式整理</strong>
+                      <small>中文正文宋体并首行缩进，英文正文不缩进；标题和表格不强行套用</small>
+                    </span>
+                  </label>
+                </>
               ) : (
                 <label className="ferry-tool-repair">
                   <input
@@ -444,6 +493,7 @@ export default function FerryPage() {
                       {preview.repairReport && preview.reportPhase && (
                         <RepairReport report={preview.repairReport} phase={preview.reportPhase} />
                       )}
+                      {preview.formatReport && <FormatReport report={preview.formatReport} />}
                       {preview.html && <div className="ferry-tool-preview-box" dangerouslySetInnerHTML={{ __html: preview.html }} />}
                     </>
                   )}
@@ -487,7 +537,7 @@ export default function FerryPage() {
               <span>03</span>
               <h2>边界清楚</h2>
             </header>
-            <p>Word 优化首版只修复高置信度公式源码，不会自动统一字体、行距、页边距和整篇论文版式；复杂公式和布局仍需人工检查。</p>
+            <p>Word 优化首版会修复高置信度公式源码，并可选整理中文正文宋体、首行缩进和英文正文不缩进；不会自动统一字号、行距、页边距和整篇论文模板，复杂公式和布局仍需人工检查。</p>
           </article>
         </section>
 
