@@ -1608,6 +1608,159 @@ h1 {
   padding: 24px 0;
 }
 
+.ferry-tool-report {
+  padding: 14px 16px 16px;
+  border-bottom: 1px solid var(--ferry-line);
+  background: #fffefa;
+}
+
+.ferry-tool-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ferry-tool-report-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.ferry-tool-report-head > div > span {
+  color: var(--ferry-muted);
+  font-size: 11px;
+}
+
+.ferry-tool-report-head strong {
+  color: var(--ferry-ink);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ferry-tool-report-state {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ferry-tool-report-state.complete,
+.ferry-tool-report-state.ready {
+  background: var(--ferry-green-soft);
+  color: var(--ferry-green-dark);
+}
+
+.ferry-tool-report-state.attention {
+  background: #fff0df;
+  color: #9b5b21;
+}
+
+.ferry-tool-report-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 13px 0 0;
+  border-top: 1px solid var(--ferry-line);
+  border-bottom: 1px solid var(--ferry-line);
+}
+
+.ferry-tool-report-stats div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.ferry-tool-report-stats div + div {
+  border-left: 1px solid var(--ferry-line);
+}
+
+.ferry-tool-report-stats dt {
+  color: var(--ferry-muted);
+  font-size: 10px;
+}
+
+.ferry-tool-report-stats dd {
+  margin: 0;
+  color: var(--ferry-green-dark);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.ferry-tool-report-issues {
+  margin-top: 12px;
+}
+
+.ferry-tool-report-issues h4 {
+  margin: 0 0 7px;
+  color: #8a5b2d;
+  font-size: 11px;
+}
+
+.ferry-tool-report-issues ol {
+  display: grid;
+  gap: 8px;
+  max-height: 230px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.ferry-tool-report-issues li {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) minmax(0, 1fr);
+  gap: 3px 10px;
+  padding-left: 9px;
+  border-left: 2px solid #e8ae73;
+}
+
+.ferry-tool-report-issues li strong {
+  color: var(--ferry-ink);
+  font-size: 11px;
+}
+
+.ferry-tool-report-issues code {
+  min-width: 0;
+  overflow: hidden;
+  color: #6d5540;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ferry-tool-report-issues li p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ferry-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.ferry-tool-report-more,
+.ferry-tool-report-clear {
+  margin: 10px 0 0;
+  color: var(--ferry-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.ferry-tool-report-clear {
+  padding-left: 14px;
+  position: relative;
+}
+
+.ferry-tool-report-clear::before {
+  position: absolute;
+  left: 0;
+  color: var(--ferry-green);
+  content: "✓";
+  font-weight: 800;
+}
+
 .ferry-tool-details {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1754,6 +1907,28 @@ h1 {
   .ferry-tool-actions,
   .ferry-tool-details {
     grid-template-columns: 1fr;
+  }
+
+  .ferry-tool-report-head {
+    gap: 10px;
+  }
+
+  .ferry-tool-report-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .ferry-tool-report-stats div + div {
+    border-top: 1px solid var(--ferry-line);
+    border-left: 0;
+  }
+
+  .ferry-tool-report-issues li {
+    grid-template-columns: 1fr;
+  }
+
+  .ferry-tool-report-issues code,
+  .ferry-tool-report-issues li p {
+    grid-column: 1;
   }
 
   .ferry-tool-privacy {

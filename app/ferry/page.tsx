@@ -11,10 +11,17 @@ import {
   wordToMarkdown,
 } from "./converter";
 import type { ConversionMeta } from "./converter";
+import type { WordRepairReport } from "./converter";
 
 type Direction = "md-to-word" | "word-to-md" | "word-optimize";
 type Message = { kind: "success" | "error"; text: string } | null;
-type Preview = { loading: boolean; html: string; note?: string } | null;
+type Preview = {
+  loading: boolean;
+  html: string;
+  note?: string;
+  repairReport?: WordRepairReport;
+  reportPhase?: "inspection" | "result";
+} | null;
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
@@ -51,6 +58,65 @@ function metaNote(meta: ConversionMeta): string {
   if (meta.repairedCount > 0) notes.push(`修复疑似乱码：${meta.repairedCount} 处`);
   if ((meta.formulaResidualCount ?? 0) > 0) notes.push(`有 ${meta.formulaResidualCount} 个公式需要人工检查`);
   return notes.join(" · ");
+}
+
+function RepairReport({ report, phase }: { report: WordRepairReport; phase: "inspection" | "result" }) {
+  const complete = phase === "result" && report.remainingCount === 0;
+  const empty = report.detectedCount === 0;
+  const status = empty
+    ? "未发现待修复公式"
+    : complete
+      ? "修复完成，未发现源码残留"
+      : report.remainingCount > 0
+        ? `${report.remainingCount} 处需要人工检查`
+        : `${report.repairableCount} 处可自动修复`;
+
+  return (
+    <section className="ferry-tool-report" aria-label={phase === "result" ? "Word 修复结果" : "Word 修复诊断"}>
+      <div className="ferry-tool-report-head">
+        <div>
+          <span>{phase === "result" ? "修复结果" : "上传前诊断"}</span>
+          <strong>{status}</strong>
+        </div>
+        <span className={`ferry-tool-report-state ${complete ? "complete" : report.remainingCount > 0 ? "attention" : "ready"}`}>
+          {complete ? "已通过检查" : report.remainingCount > 0 ? "需复核" : empty ? "无需修复" : "可开始"}
+        </span>
+      </div>
+      <dl className="ferry-tool-report-stats">
+        <div>
+          <dt>发现源码</dt>
+          <dd>{report.detectedCount}</dd>
+        </div>
+        <div>
+          <dt>{phase === "result" ? "修复成功" : "可自动修复"}</dt>
+          <dd>{phase === "result" ? report.repairedCount : report.repairableCount}</dd>
+        </div>
+        <div>
+          <dt>需人工检查</dt>
+          <dd>{report.remainingCount}</dd>
+        </div>
+      </dl>
+      {report.issues.length > 0 ? (
+        <div className="ferry-tool-report-issues">
+          <h4>请重点检查以下位置</h4>
+          <ol>
+            {report.issues.slice(0, 8).map((issue, index) => (
+              <li key={`${issue.location}-${index}`}>
+                <strong>{issue.location}</strong>
+                <code>{issue.excerpt}</code>
+                <p>{issue.reason}{issue.count > 1 ? `（涉及 ${issue.count} 处）` : ""}</p>
+              </li>
+            ))}
+          </ol>
+          {report.issues.length > 8 && <p className="ferry-tool-report-more">另有 {report.issues.length - 8} 个位置未在页面展开，请优先检查复杂公式段落。</p>}
+        </div>
+      ) : (
+        <p className="ferry-tool-report-clear">
+          {empty ? "文档中没有检测到当前版本可处理的公式源码。" : "当前检测范围内没有发现需要人工检查的源码，下载后仍建议抽查复杂公式。"}
+        </p>
+      )}
+    </section>
+  );
 }
 
 export default function FerryPage() {
@@ -123,13 +189,17 @@ export default function FerryPage() {
         setPreview({ loading: false, html: truncated + suffix, note: metaNote(converted.meta) });
       } else {
         const meta = await inspectWordOptimization(candidate);
+        const repairableCount = meta.repairReport?.repairableCount ?? meta.formulaCount;
+        const remainingCount = meta.repairReport?.remainingCount ?? 0;
         const formulaMessage = meta.formulaCount > 0
-          ? `检测到 ${meta.formulaCount} 个可自动修复的公式源码。`
+          ? `共发现 ${meta.formulaCount} 处公式源码，其中 ${repairableCount} 处可自动修复${remainingCount > 0 ? `，${remainingCount} 处需要人工检查` : ""}。`
           : "没有检测到可自动修复的公式源码。";
         setPreview({
           loading: false,
           html: `<p>${formulaMessage}</p><p>首版只局部替换高置信度公式，原有正文、表格、图片和样式会尽量保留。</p>`,
           note: metaNote(meta),
+          repairReport: meta.repairReport,
+          reportPhase: "inspection",
         });
       }
     } catch (error) {
@@ -211,6 +281,15 @@ export default function FerryPage() {
           : await optimizeWord(file);
       triggerDownload(result.blob, result.filename);
       const detail = metaNote(result.meta);
+      if (direction === "word-optimize" && result.meta.repairReport) {
+        setPreview((current) => ({
+          loading: false,
+          html: current?.html ?? "",
+          note: metaNote(result.meta),
+          repairReport: result.meta.repairReport,
+          reportPhase: "result",
+        }));
+      }
       setMessage({
         kind: "success",
         text: `${direction === "word-optimize" ? "优化" : "转换"}完成，已下载 ${result.filename}${detail ? `。${detail}` : ""}`,
@@ -361,7 +440,12 @@ export default function FerryPage() {
                   {preview.loading ? (
                     <p className="ferry-tool-preview-loading">正在加载预览…</p>
                   ) : (
-                    <div className="ferry-tool-preview-box" dangerouslySetInnerHTML={{ __html: preview.html }} />
+                    <>
+                      {preview.repairReport && preview.reportPhase && (
+                        <RepairReport report={preview.repairReport} phase={preview.reportPhase} />
+                      )}
+                      {preview.html && <div className="ferry-tool-preview-box" dangerouslySetInnerHTML={{ __html: preview.html }} />}
+                    </>
                   )}
                 </div>
               )}

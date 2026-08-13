@@ -41,6 +41,22 @@ export type ConversionMeta = {
   repairedCount: number;
   normalizedFormulaCount?: number;
   formulaResidualCount?: number;
+  repairReport?: WordRepairReport;
+};
+
+export type WordRepairIssue = {
+  location: string;
+  excerpt: string;
+  reason: string;
+  count: number;
+};
+
+export type WordRepairReport = {
+  detectedCount: number;
+  repairableCount: number;
+  repairedCount: number;
+  remainingCount: number;
+  issues: WordRepairIssue[];
 };
 
 export type ConversionResult = {
@@ -1301,6 +1317,8 @@ type WordFormulaCandidate = {
   segments: MathSegment[];
 };
 
+const BARE_LATEX_SOURCE = /\\(?:frac|dfrac|tfrac|text|mathrm|mathbf|mathit|mathcal|mathbb|sqrt|cdot|times|ln|log|sum|prod|int|left|right|begin|end)\b/;
+
 function wordTextFormulaCandidates(documentNode: globalThis.Document): WordFormulaCandidate[] {
   const candidates: WordFormulaCandidate[] = [];
   const textNodes = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "t"));
@@ -1322,14 +1340,146 @@ function wordTextFormulaCandidates(documentNode: globalThis.Document): WordFormu
   return candidates;
 }
 
-function countWordTextFormulaResiduals(documentNode: globalThis.Document): number {
-  return Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "t"))
-    .reduce((count, textNode) => {
-      const text = textNode.textContent ?? "";
-      const delimited = splitMarkdownMath(text).filter((segment) => segment.type === "math").length;
-      const bareSource = delimited === 0 && /\\(?:frac|text|mathrm|mathbf|mathcal|sqrt|cdot|times|ln|sum|int)\b/.test(text) ? 1 : 0;
-      return count + delimited + bareSource;
-    }, 0);
+function closestWordElement(node: Element | null, localName: string): Element | null {
+  let current = node;
+  while (current) {
+    if (current.namespaceURI === WORD_NS && current.localName === localName) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function paragraphText(paragraph: Element): string {
+  return Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "t"))
+    .map((node) => node.textContent ?? "")
+    .join("");
+}
+
+function issueExcerpt(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return "未能读取原文片段";
+  return compact.length > 96 ? `${compact.slice(0, 93)}...` : compact;
+}
+
+function paragraphLocations(documentNode: globalThis.Document): Map<Element, string> {
+  const locations = new Map<Element, string>();
+  const tables = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "tbl"));
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  let bodyParagraphIndex = 0;
+
+  for (const paragraph of paragraphs) {
+    const table = closestWordElement(paragraph.parentElement, "tbl");
+    if (!table) {
+      bodyParagraphIndex += 1;
+      locations.set(paragraph, `正文第 ${bodyParagraphIndex} 段`);
+      continue;
+    }
+
+    const row = closestWordElement(paragraph.parentElement, "tr");
+    const cell = closestWordElement(paragraph.parentElement, "tc");
+    const tableIndex = Math.max(0, tables.indexOf(table)) + 1;
+    const rows = namedChildren(table, "tr");
+    const rowIndex = row ? Math.max(0, rows.indexOf(row)) + 1 : 1;
+    const cells = row ? namedChildren(row, "tc") : [];
+    const cellIndex = cell ? Math.max(0, cells.indexOf(cell)) + 1 : 1;
+    const cellParagraphs = cell
+      ? Array.from(cell.getElementsByTagNameNS(WORD_NS, "p")).filter((item) => closestWordElement(item.parentElement, "tc") === cell)
+      : [];
+    const cellParagraphIndex = Math.max(0, cellParagraphs.indexOf(paragraph)) + 1;
+    locations.set(
+      paragraph,
+      `表格 ${tableIndex}·第 ${rowIndex} 行第 ${cellIndex} 列${cellParagraphs.length > 1 ? `·第 ${cellParagraphIndex} 段` : ""}`,
+    );
+  }
+
+  return locations;
+}
+
+function countUnescapedDollars(value: string): number {
+  let count = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "$") continue;
+    let slashes = 0;
+    for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) slashes += 1;
+    if (slashes % 2 === 0) count += 1;
+  }
+  return count;
+}
+
+function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairReport {
+  const candidates = wordTextFormulaCandidates(documentNode);
+  const locations = paragraphLocations(documentNode);
+  const candidateCounts = new Map<Element, number>();
+  let repairableCount = 0;
+
+  for (const candidate of candidates) {
+    const count = candidate.segments.filter((segment) => segment.type === "math").length;
+    const paragraph = closestWordElement(candidate.run.parentElement, "p");
+    repairableCount += count;
+    if (paragraph) candidateCounts.set(paragraph, (candidateCounts.get(paragraph) ?? 0) + count);
+  }
+
+  const issues: WordRepairIssue[] = [];
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  for (const paragraph of paragraphs) {
+    const text = paragraphText(paragraph);
+    if (!text) continue;
+    const segments = splitMarkdownMath(text);
+    const delimitedCount = segments.filter((segment) => segment.type === "math").length;
+    const repairableHere = candidateCounts.get(paragraph) ?? 0;
+    const splitAcrossRuns = Math.max(0, delimitedCount - repairableHere);
+    const location = locations.get(paragraph) ?? "正文";
+
+    if (splitAcrossRuns > 0) {
+      issues.push({
+        location,
+        excerpt: issueExcerpt(text),
+        reason: "公式被 Word 拆成了多个文本片段，当前版本不自动合并，以免破坏原文。",
+        count: splitAcrossRuns,
+      });
+    }
+
+    const plainText = segments.filter((segment) => segment.type === "text").map((segment) => segment.value).join("");
+    if (BARE_LATEX_SOURCE.test(plainText)) {
+      issues.push({
+        location,
+        excerpt: issueExcerpt(plainText),
+        reason: "发现没有完整公式标记的 LaTeX 源码，无法可靠判断公式边界。",
+        count: 1,
+      });
+    }
+
+    if (delimitedCount === 0 && countUnescapedDollars(text) % 2 === 1) {
+      issues.push({
+        location,
+        excerpt: issueExcerpt(text),
+        reason: "公式标记不完整，缺少开始或结束符号。",
+        count: 1,
+      });
+    }
+  }
+
+  const formulaObjects = Array.from(documentNode.getElementsByTagNameNS(MATH_NS, "oMath"));
+  for (const formula of formulaObjects) {
+    const source = formula.textContent ?? "";
+    if (!/\\[A-Za-z]+|\$\$?/.test(source)) continue;
+    const paragraph = closestWordElement(formula.parentElement, "p");
+    issues.push({
+      location: paragraph ? locations.get(paragraph) ?? "Word 公式对象" : "Word 公式对象",
+      excerpt: issueExcerpt(source),
+      reason: "Word 公式对象内仍包含 LaTeX 源码，当前版本暂不重建已有公式对象。",
+      count: 1,
+    });
+  }
+
+  const remainingCount = issues.reduce((count, issue) => count + issue.count, 0);
+  return {
+    detectedCount: repairableCount + remainingCount,
+    repairableCount,
+    repairedCount: 0,
+    remainingCount,
+    issues,
+  };
 }
 
 async function buildWordMathNodes(latexSources: string[]): Promise<Element[]> {
@@ -1365,18 +1515,14 @@ export async function inspectWordOptimization(file: File): Promise<ConversionMet
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) throw new Error("不是可读取的 Word 文档");
   const documentNode = new DOMParser().parseFromString(await documentFile.async("string"), "application/xml");
-  const candidates = wordTextFormulaCandidates(documentNode);
-  const formulaCount = candidates.reduce(
-    (count, candidate) => count + candidate.segments.filter((segment) => segment.type === "math").length,
-    0,
-  );
-  const detectedFormulaSourceCount = countWordTextFormulaResiduals(documentNode);
+  const repairReport = inspectWordRepairReport(documentNode);
   return {
     encoding: "DOCX / UTF-8",
-    formulaCount,
+    formulaCount: repairReport.detectedCount,
     repairedCount: 0,
     normalizedFormulaCount: 0,
-    formulaResidualCount: Math.max(0, detectedFormulaSourceCount - formulaCount),
+    formulaResidualCount: repairReport.remainingCount,
+    repairReport,
   };
 }
 
@@ -1387,6 +1533,7 @@ export async function optimizeWord(file: File): Promise<ConversionResult> {
 
   const xml = await documentFile.async("string");
   const documentNode = new DOMParser().parseFromString(xml, "application/xml");
+  const inputReport = inspectWordRepairReport(documentNode);
   const candidates = wordTextFormulaCandidates(documentNode);
   const latexSources = candidates.flatMap((candidate) => candidate.segments
     .filter((segment): segment is MathSegment & { type: "math" } => segment.type === "math")
@@ -1420,17 +1567,25 @@ export async function optimizeWord(file: File): Promise<ConversionResult> {
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
   const outputDocument = new DOMParser().parseFromString(serialized, "application/xml");
-  const formulaResidualCount = countWordTextFormulaResiduals(outputDocument);
+  const outputReport = inspectWordRepairReport(outputDocument);
+  const repairReport: WordRepairReport = {
+    detectedCount: inputReport.detectedCount,
+    repairableCount: inputReport.repairableCount,
+    repairedCount,
+    remainingCount: outputReport.remainingCount,
+    issues: outputReport.issues,
+  };
 
   return {
     blob: outputBlob,
     filename: `${safeStem(file.name)}-优化后.docx`,
     meta: {
       encoding: "DOCX / UTF-8",
-      formulaCount: latexSources.length,
+      formulaCount: repairReport.detectedCount,
       repairedCount: 0,
       normalizedFormulaCount: repairedCount,
-      formulaResidualCount,
+      formulaResidualCount: repairReport.remainingCount,
+      repairReport,
     },
   };
 }
