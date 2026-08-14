@@ -399,8 +399,9 @@ export function normalizeLatexSource(value: string): string {
   // Markdown escapes punctuation such as `\_` and `\=`. Inside a formula
   // these are structural characters, so restore them before parsing.
   source = source
+    .replace(/\$\$?/g, "")
     .replace(/\\{1,}(?=\s)/g, " ")
-    .replace(/\\([_^=+\-*%])/g, "$1");
+    .replace(/\\([_^=+\-*%<>])/g, "$1");
 
   // AI exports commonly double every backslash. Collapse only before a
   // command or a math delimiter so genuine TeX line-breaks are preserved.
@@ -411,6 +412,11 @@ export function normalizeLatexSource(value: string): string {
     if (next === source) break;
     source = next;
   }
+
+  // Some AI-to-Word exports turn `q_e` into `q\e` and `k_2` into
+  // `k\2`. Restore this narrow one-character subscript form only when
+  // the escaped character is a complete token.
+  source = source.replace(/([A-Za-z])\\([A-Za-z0-9])(?=[^A-Za-z0-9]|$)/g, "$1_$2");
 
   return source
     .replace(/\\(vert|Vert|mid|parallel)\{\}/g, "\\$1")
@@ -1326,29 +1332,45 @@ export async function wordToMarkdown(file: File, repair = true): Promise<Convers
 }
 
 type WordFormulaCandidate = {
-  run: Element;
+  paragraph: Element;
+  sourceRun: Element;
   text: string;
   segments: MathSegment[];
 };
 
-const BARE_LATEX_SOURCE = /\\(?:frac|dfrac|tfrac|text|mathrm|mathbf|mathit|mathcal|mathbb|sqrt|cdot|times|ln|log|sum|prod|int|left|right|begin|end)\b/;
+const BARE_LATEX_SOURCE = /\\(?:frac|dfrac|tfrac|text|mathrm|mathbf|mathit|mathcal|mathbb|sqrt|cdot|times|ln|log|sum|prod|int|left|right|begin|end|multicolumn)\b/;
+const AI_PLAINTEXT_LABEL = /^\s*Plaintext(?:\s+|$)/i;
+
+function paragraphSourceText(paragraph: Element): string {
+  const parts: string[] = [];
+  for (const child of childElements(paragraph)) {
+    if (child.localName !== "r") continue;
+    for (const runChild of childElements(child)) {
+      if (runChild.localName === "t") parts.push(runChild.textContent ?? "");
+      if (runChild.localName === "br" || runChild.localName === "cr") parts.push("\n");
+      if (runChild.localName === "tab") parts.push("\t");
+    }
+  }
+  return parts.join("");
+}
 
 function wordTextFormulaCandidates(documentNode: globalThis.Document): WordFormulaCandidate[] {
   const candidates: WordFormulaCandidate[] = [];
-  const textNodes = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "t"));
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
 
-  for (const textNode of textNodes) {
-    const run = textNode.parentElement;
-    if (!run || run.localName !== "r") continue;
-    const runChildren = childElements(run);
-    const textChildren = runChildren.filter((child) => child.localName === "t");
-    const hasUnsupportedChildren = runChildren.some((child) => !["rPr", "t"].includes(child.localName));
-    if (textChildren.length !== 1 || hasUnsupportedChildren) continue;
+  for (const paragraph of paragraphs) {
+    const directChildren = childElements(paragraph);
+    if (directChildren.some((child) => !["pPr", "r"].includes(child.localName))) continue;
+    const runs = directChildren.filter((child) => child.localName === "r");
+    if (!runs.length) continue;
+    const hasUnsupportedRun = runs.some((run) => childElements(run)
+      .some((child) => !["rPr", "t", "br", "cr", "tab"].includes(child.localName)));
+    if (hasUnsupportedRun) continue;
 
-    const text = textNode.textContent ?? "";
+    const text = paragraphSourceText(paragraph);
     const segments = splitMarkdownMath(text);
     if (!segments.some((segment) => segment.type === "math")) continue;
-    candidates.push({ run, text, segments });
+    candidates.push({ paragraph, sourceRun: runs[0], text, segments });
   }
 
   return candidates;
@@ -1428,9 +1450,8 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
 
   for (const candidate of candidates) {
     const count = candidate.segments.filter((segment) => segment.type === "math").length;
-    const paragraph = closestWordElement(candidate.run.parentElement, "p");
     repairableCount += count;
-    if (paragraph) candidateCounts.set(paragraph, (candidateCounts.get(paragraph) ?? 0) + count);
+    candidateCounts.set(candidate.paragraph, count);
   }
 
   const issues: WordRepairIssue[] = [];
@@ -1454,7 +1475,8 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
     }
 
     const plainText = segments.filter((segment) => segment.type === "text").map((segment) => segment.value).join("");
-    if (BARE_LATEX_SOURCE.test(plainText)) {
+    const simpleMulticolumn = /^\\{1,2}multicolumn\{\d+\}\{c\s*$/.test(plainText.trim());
+    if (BARE_LATEX_SOURCE.test(plainText) && !simpleMulticolumn) {
       issues.push({
         location,
         excerpt: issueExcerpt(plainText),
@@ -1476,7 +1498,7 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
   const formulaObjects = Array.from(documentNode.getElementsByTagNameNS(MATH_NS, "oMath"));
   for (const formula of formulaObjects) {
     const source = formula.textContent ?? "";
-    if (!/\\[A-Za-z]+|\$\$?/.test(source)) continue;
+    if (!/[\\$]/.test(source)) continue;
     const paragraph = closestWordElement(formula.parentElement, "p");
     issues.push({
       location: paragraph ? locations.get(paragraph) ?? "Word 公式对象" : "Word 公式对象",
@@ -1524,6 +1546,119 @@ function cloneTextRun(documentNode: globalThis.Document, sourceRun: Element, tex
   return run;
 }
 
+function appendCandidateSegments(
+  documentNode: globalThis.Document,
+  candidate: WordFormulaCandidate,
+  formulaNodes: Element[],
+  formulaIndex: { value: number },
+): number {
+  let repairedCount = 0;
+  const properties = childElements(candidate.paragraph).find((child) => child.localName === "pPr");
+  for (const child of childElements(candidate.paragraph)) {
+    if (child !== properties) candidate.paragraph.removeChild(child);
+  }
+
+  for (const segment of candidate.segments) {
+    if (segment.type === "text") {
+      const chunks = segment.value.split("\n");
+      chunks.forEach((chunk, index) => {
+        if (chunk) candidate.paragraph.appendChild(cloneTextRun(documentNode, candidate.sourceRun, chunk));
+        if (index < chunks.length - 1) {
+          const breakRun = cloneTextRun(documentNode, candidate.sourceRun, "");
+          breakRun.appendChild(documentNode.createElementNS(WORD_NS, "w:br"));
+          candidate.paragraph.appendChild(breakRun);
+        }
+      });
+      continue;
+    }
+    const formulaNode = formulaNodes[formulaIndex.value++];
+    if (!formulaNode) continue;
+    candidate.paragraph.appendChild(documentNode.importNode(formulaNode, true));
+    repairedCount += 1;
+  }
+  return repairedCount;
+}
+
+function setRunBold(documentNode: globalThis.Document, run: Element): void {
+  const properties = ensureChildElement(documentNode, run, "rPr");
+  if (!childElements(properties).some((child) => child.localName === "b")) {
+    properties.appendChild(documentNode.createElementNS(WORD_NS, "w:b"));
+  }
+  if (!childElements(properties).some((child) => child.localName === "bCs")) {
+    properties.appendChild(documentNode.createElementNS(WORD_NS, "w:bCs"));
+  }
+}
+
+function cleanWordMarkdownArtifacts(documentNode: globalThis.Document): number {
+  let cleanedCount = 0;
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  for (const paragraph of paragraphs) {
+    const text = paragraphSourceText(paragraph);
+    const boldMatch = /^\s*\*\*([\s\S]*?)\*\*\s*$/.exec(text);
+    if (!boldMatch) continue;
+    const runs = childElements(paragraph).filter((child) => child.localName === "r");
+    if (!runs.length) continue;
+    const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+    for (const child of childElements(paragraph)) {
+      if (child !== properties) paragraph.removeChild(child);
+    }
+    const replacement = cloneTextRun(documentNode, runs[0], boldMatch[1]);
+    setRunBold(documentNode, replacement);
+    paragraph.appendChild(replacement);
+    cleanedCount += 1;
+  }
+
+  for (const paragraph of paragraphs) {
+    const text = paragraphSourceText(paragraph);
+    if (!AI_PLAINTEXT_LABEL.test(text)) continue;
+    const runs = childElements(paragraph).filter((child) => child.localName === "r");
+    if (!runs.length) continue;
+    const cleanedText = text.replace(AI_PLAINTEXT_LABEL, "").trimStart();
+    const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+    for (const child of childElements(paragraph)) {
+      if (child !== properties) paragraph.removeChild(child);
+    }
+    if (cleanedText) paragraph.appendChild(cloneTextRun(documentNode, runs[0], cleanedText));
+    cleanedCount += 1;
+  }
+  return cleanedCount;
+}
+
+function setParagraphText(documentNode: globalThis.Document, paragraph: Element, text: string): boolean {
+  const runs = childElements(paragraph).filter((child) => child.localName === "r");
+  if (!runs.length) return false;
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  for (const child of childElements(paragraph)) {
+    if (child !== properties) paragraph.removeChild(child);
+  }
+  if (text) paragraph.appendChild(cloneTextRun(documentNode, runs[0], text));
+  return true;
+}
+
+function repairSimpleMulticolumnRows(documentNode: globalThis.Document): number {
+  let repairedCount = 0;
+  const rows = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "tr"));
+  for (const row of rows) {
+    const cells = namedChildren(row, "tc");
+    for (let index = 0; index < cells.length - 1; index += 1) {
+      const markerParagraph = Array.from(cells[index].getElementsByTagNameNS(WORD_NS, "p"))[0];
+      const valueParagraph = Array.from(cells[index + 1].getElementsByTagNameNS(WORD_NS, "p"))[0];
+      if (!markerParagraph || !valueParagraph) continue;
+      const marker = paragraphText(markerParagraph).trim();
+      const value = paragraphText(valueParagraph).trim();
+      const markerMatch = /^\\{1,2}multicolumn\{(\d+)\}\{c$/.exec(marker);
+      const valueMatch = /^\}\{([\s\S]+)\}$/.exec(value);
+      if (!markerMatch || !valueMatch) continue;
+      const span = Number(markerMatch[1]);
+      if (!Number.isInteger(span) || span < 1 || span > cells.length - index) continue;
+      if (!setParagraphText(documentNode, markerParagraph, valueMatch[1])) continue;
+      setParagraphText(documentNode, valueParagraph, "");
+      repairedCount += 1;
+    }
+  }
+  return repairedCount;
+}
+
 function ensureChildElement(documentNode: globalThis.Document, parent: Element, localName: string): Element {
   const existing = childElements(parent).find((child) => child.localName === localName);
   if (existing) return existing;
@@ -1536,12 +1671,13 @@ function ensureChildElement(documentNode: globalThis.Document, parent: Element, 
   return created;
 }
 
-function setWordFont(documentNode: globalThis.Document, run: Element, font: string): void {
+function setWordFont(documentNode: globalThis.Document, run: Element, asciiFont: string, eastAsiaFont = asciiFont): void {
   const properties = ensureChildElement(documentNode, run, "rPr");
   const fonts = ensureChildElement(documentNode, properties, "rFonts");
-  for (const attribute of ["ascii", "hAnsi", "eastAsia", "cs"] as const) {
-    fonts.setAttributeNS(WORD_NS, `w:${attribute}`, font);
-  }
+  fonts.setAttributeNS(WORD_NS, "w:ascii", asciiFont);
+  fonts.setAttributeNS(WORD_NS, "w:hAnsi", asciiFont);
+  fonts.setAttributeNS(WORD_NS, "w:eastAsia", eastAsiaFont);
+  fonts.setAttributeNS(WORD_NS, "w:cs", asciiFont);
 }
 
 function setFirstLineIndent(documentNode: globalThis.Document, paragraph: Element, twips: string): void {
@@ -1623,7 +1759,7 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
       if (!runText) continue;
       const runHasCjk = /[\u3400-\u9fff]/.test(runText);
       const runHasLatin = /[A-Za-z]/.test(runText);
-      setWordFont(documentNode, run, runHasCjk ? "SimSun" : "Times New Roman");
+      setWordFont(documentNode, run, "Times New Roman", runHasCjk ? "SimSun" : "Times New Roman");
       fontRunCount += 1;
       if (runHasCjk) chineseRunCount += 1;
       if (runHasLatin) englishRunCount += 1;
@@ -1666,30 +1802,18 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
   const xml = await documentFile.async("string");
   const documentNode = new DOMParser().parseFromString(xml, "application/xml");
   const inputReport = inspectWordRepairReport(documentNode);
+  cleanWordMarkdownArtifacts(documentNode);
+  repairSimpleMulticolumnRows(documentNode);
   const candidates = wordTextFormulaCandidates(documentNode);
   const latexSources = candidates.flatMap((candidate) => candidate.segments
     .filter((segment): segment is MathSegment & { type: "math" } => segment.type === "math")
     .map((segment) => normalizeLatexSource(segment.value)));
   const formulaNodes = await buildWordMathNodes(latexSources);
-  let formulaIndex = 0;
+  const formulaIndex = { value: 0 };
   let repairedCount = 0;
 
   for (const candidate of candidates) {
-    const parent = candidate.run.parentNode;
-    if (!parent) continue;
-    const replacements: Node[] = [];
-    for (const segment of candidate.segments) {
-      if (segment.type === "text") {
-        if (segment.value) replacements.push(cloneTextRun(documentNode, candidate.run, segment.value));
-        continue;
-      }
-      const formulaNode = formulaNodes[formulaIndex++];
-      if (!formulaNode) continue;
-      replacements.push(documentNode.importNode(formulaNode, true));
-      repairedCount += 1;
-    }
-    for (const replacement of replacements) parent.insertBefore(replacement, candidate.run);
-    parent.removeChild(candidate.run);
+    repairedCount += appendCandidateSegments(documentNode, candidate, formulaNodes, formulaIndex);
   }
 
   const serialized = new XMLSerializer().serializeToString(documentNode);

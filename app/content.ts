@@ -122,7 +122,7 @@ export const aiProjects = [
     status: "已上线",
     title: "文档渡口 · AI 文档转换与公式修复",
     summary:
-      "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，也能把 AI 导出 Word 中裸露的常见公式源码修复为可编辑公式。支持中英文混排、上下标、分式、单位、化学式、表格公式和 AI 双重转义；最新 Word 样本自动修复 46 个公式，源码残留为 0。",
+      "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，也能把 AI 导出 Word 中裸露的常见公式源码修复为可编辑公式。支持中英文混排、上下标、分式、单位、化学式、表格公式、AI 双重转义和跨文本片段公式；最新真实 Word 样本自动修复 71 个公式，源码残留为 0。",
     proof: ["本地处理", "MD ↔ Word", "Word 公式修复", "结果审计"],
     image: "/ferry-tool.png",
     imageAlt: "文档渡口在线工具界面截图",

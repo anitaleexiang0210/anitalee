@@ -327,8 +327,10 @@ export default function FerryPage() {
         }));
       }
       setMessage({
-        kind: "success",
-        text: `${direction === "word-optimize" ? "优化" : "转换"}完成，已下载 ${result.filename}${detail ? `。${detail}` : ""}`,
+        kind: direction === "word-optimize" && (result.meta.formulaResidualCount ?? 0) > 0 ? "error" : "success",
+        text: direction === "word-optimize" && (result.meta.formulaResidualCount ?? 0) > 0
+          ? `已生成并下载 ${result.filename}，但仍有 ${result.meta.formulaResidualCount} 处需要人工检查，不能视为修复完成${detail ? `。${detail}` : ""}`
+          : `${direction === "word-optimize" ? "优化" : "转换"}完成，已下载 ${result.filename}${detail ? `。${detail}` : ""}`,
       });
     } catch (error) {
       console.error(error);
@@ -509,7 +511,7 @@ export default function FerryPage() {
 
               {message && (
                 <div className={`ferry-tool-notice ${message.kind}`} role="status">
-                  <strong>{message.kind === "success" ? "完成" : "提示"}</strong>
+                  <strong>{message.kind === "success" ? "完成" : "需要检查"}</strong>
                   <span>{message.text}</span>
                 </div>
               )}
@@ -530,7 +532,7 @@ export default function FerryPage() {
               <span>02</span>
               <h2>结果可检查</h2>
             </header>
-            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。Markdown 长论文样本识别 51 个公式；Word 修复样本修复 46 个公式，源码残留均为 0。</p>
+            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。Markdown 长论文样本识别 51 个公式；最新真实 Word 样本修复 71 个公式，源码残留均为 0。</p>
           </article>
           <article>
             <header>
