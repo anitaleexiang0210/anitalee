@@ -362,7 +362,7 @@ export default function FerryPage() {
               <span>转好，也修好。</span>
             </h1>
             <p>
-              不上传云端。完成 Markdown 与 Word 双向转换，也能把 AI 导出 Word 中裸露的常见论文公式源码，修复为可编辑的 Word 公式，并做基础论文格式整理。
+              不上传云端。完成 Markdown 与 Word 双向转换，也能修复 AI 导出 Word 中裸露或结构异常的常见论文公式，并做基础论文格式整理。
             </p>
             <ul className="ferry-tool-promise">
               <li>全程本地处理</li>
@@ -454,8 +454,8 @@ export default function FerryPage() {
                   <div className="ferry-tool-repair ferry-tool-repair-static">
                     <span className="ferry-tool-repair-icon" aria-hidden="true">✓</span>
                     <span>
-                      <strong>修复 Word 中裸露的公式源码</strong>
-                      <small>支持普通文本里的 `$...$`、`$$...$$` 等常见公式，复杂排版仍需下载后检查</small>
+                      <strong>修复 Word 中异常公式</strong>
+                      <small>支持裸露源码和旧版函数结构异常；复杂公式仍需下载后检查</small>
                     </span>
                   </div>
                   <label className="ferry-tool-repair">
@@ -539,7 +539,7 @@ export default function FerryPage() {
               <span>03</span>
               <h2>边界清楚</h2>
             </header>
-            <p>Word 优化首版会修复高置信度公式源码，并可选整理中文正文宋体、首行缩进和英文正文不缩进；不会自动统一字号、行距、页边距和整篇论文模板，复杂公式和布局仍需人工检查。</p>
+            <p>Word 优化会修复高置信度公式源码和部分异常 Word 公式结构，并可选整理中文正文宋体、首行缩进和英文正文不缩进；不会自动统一字号、行距、页边距和整篇论文模板，复杂公式和布局仍需人工检查。</p>
           </article>
         </section>
 

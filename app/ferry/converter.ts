@@ -1284,6 +1284,58 @@ function restoreFormulaMarkers(markdown: string, formulas: FormulaMarker[]): str
   return output.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function malformedMathFunctionNodes(documentNode: globalThis.Document): Element[] {
+  return Array.from(documentNode.getElementsByTagNameNS(MATH_NS, "func"))
+    .filter((functionNode) => !namedChild(functionNode, "fName"));
+}
+
+function nextMathElementSibling(node: Element): Element | undefined {
+  const parent = node.parentElement;
+  if (!parent) return undefined;
+  const siblings = childElements(parent);
+  const index = siblings.indexOf(node);
+  const next = siblings[index + 1];
+  return next?.namespaceURI === MATH_NS ? next : undefined;
+}
+
+/**
+ * Repair the malformed function shape emitted by some AI-to-Word exports.
+ * A valid OMML function stores its name in m:fName and its argument in m:e;
+ * older exports put an m:r name and the argument siblings directly under m:func.
+ */
+function normalizeMalformedMathFunctions(documentNode: globalThis.Document): number {
+  let repairedCount = 0;
+
+  for (const functionNode of malformedMathFunctionNodes(documentNode)) {
+    const children = childElements(functionNode);
+    const nameRun = children.find((child) => child.localName === "r" && child.textContent?.trim());
+    const functionName = nameRun?.textContent?.trim() ?? "";
+    if (!nameRun || !FUNCTION_NAMES.has(functionName)) continue;
+
+    const expressionChildren = children.filter((child) => child !== nameRun && child.localName !== "funcPr");
+    const externalExpression = expressionChildren.length ? undefined : nextMathElementSibling(functionNode);
+    const argumentChildren = expressionChildren.length ? expressionChildren : externalExpression ? [externalExpression] : [];
+    if (!argumentChildren.length) continue;
+
+    const functionProperties = children.find((child) => child.localName === "funcPr");
+    const functionNameNode = documentNode.createElementNS(MATH_NS, "m:fName");
+    functionNameNode.appendChild(documentNode.importNode(nameRun, true));
+    const expressionNode = documentNode.createElementNS(MATH_NS, "m:e");
+    for (const child of argumentChildren) expressionNode.appendChild(documentNode.importNode(child, true));
+
+    while (functionNode.firstChild) functionNode.removeChild(functionNode.firstChild);
+    functionNode.appendChild(functionProperties
+      ? documentNode.importNode(functionProperties, true)
+      : documentNode.createElementNS(MATH_NS, "m:funcPr"));
+    functionNode.appendChild(functionNameNode);
+    functionNode.appendChild(expressionNode);
+    if (externalExpression) externalExpression.parentNode?.removeChild(externalExpression);
+    repairedCount += 1;
+  }
+
+  return repairedCount;
+}
+
 export async function wordArrayBufferToMarkdown(arrayBuffer: ArrayBuffer, repair = true): Promise<{ text: string; meta: ConversionMeta }> {
   const mammoth = await import("mammoth");
   const TurndownService = (await import("turndown")).default;
@@ -1292,7 +1344,9 @@ export async function wordArrayBufferToMarkdown(arrayBuffer: ArrayBuffer, repair
   let formulas: FormulaMarker[] = [];
 
   if (documentFile) {
-    const rewritten = rewriteOmmlWithMarkers(await documentFile.async("string"));
+    const documentNode = new DOMParser().parseFromString(await documentFile.async("string"), "application/xml");
+    normalizeMalformedMathFunctions(documentNode);
+    const rewritten = rewriteOmmlWithMarkers(new XMLSerializer().serializeToString(documentNode));
     formulas = rewritten.formulas;
     zip.file("word/document.xml", rewritten.xml);
   }
@@ -1509,11 +1563,32 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
   }
 
   const remainingCount = issues.reduce((count, issue) => count + issue.count, 0);
+  const malformedFunctions = malformedMathFunctionNodes(documentNode);
+  if (malformedFunctions.length > 0) {
+    const locations = paragraphLocations(documentNode);
+    const grouped = new Map<string, number>();
+    for (const functionNode of malformedFunctions) {
+      const paragraph = closestWordElement(functionNode.parentElement, "p");
+      const location = paragraph ? locations.get(paragraph) ?? "Word 公式对象" : "Word 公式对象";
+      grouped.set(location, (grouped.get(location) ?? 0) + 1);
+    }
+    for (const [location, count] of grouped) {
+      issues.push({
+        location,
+        excerpt: "ln / log 等数学函数",
+        reason: "发现旧版 Word 数学公式结构异常，可自动重建为标准可编辑公式。",
+        count,
+      });
+    }
+  }
+
+  const totalRemainingCount = issues.reduce((count, issue) => count + issue.count, 0);
+  const malformedFunctionCount = malformedFunctions.length;
   return {
-    detectedCount: repairableCount + remainingCount,
-    repairableCount,
+    detectedCount: repairableCount + totalRemainingCount,
+    repairableCount: repairableCount + malformedFunctionCount,
     repairedCount: 0,
-    remainingCount,
+    remainingCount: totalRemainingCount - malformedFunctionCount,
     issues,
   };
 }
@@ -1870,6 +1945,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
   const inputReport = inspectWordRepairReport(documentNode);
   cleanWordMarkdownArtifacts(documentNode);
   repairSimpleMulticolumnRows(documentNode);
+  const normalizedFunctionCount = normalizeMalformedMathFunctions(documentNode);
   const candidates = wordTextFormulaCandidates(documentNode);
   const latexSources = candidates.flatMap((candidate) => candidate.segments
     .filter((segment): segment is MathSegment & { type: "math" } => segment.type === "math")
@@ -1895,7 +1971,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
   const repairReport: WordRepairReport = {
     detectedCount: inputReport.detectedCount,
     repairableCount: inputReport.repairableCount,
-    repairedCount,
+    repairedCount: repairedCount + normalizedFunctionCount,
     remainingCount: outputReport.remainingCount,
     issues: outputReport.issues,
   };
@@ -1907,7 +1983,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
       encoding: "DOCX / UTF-8",
       formulaCount: repairReport.detectedCount,
       repairedCount: 0,
-      normalizedFormulaCount: repairedCount,
+      normalizedFormulaCount: repairedCount + normalizedFunctionCount,
       formulaResidualCount: repairReport.remainingCount,
       repairReport,
       formatReport,
