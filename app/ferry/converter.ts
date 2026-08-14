@@ -1727,7 +1727,73 @@ function emptyWordFormatReport(enabled = false): WordFormatReport {
   };
 }
 
+function canSplitWordParagraph(paragraph: Element): boolean {
+  const directChildren = childElements(paragraph);
+  if (!directChildren.some((child) => child.localName === "r")) return false;
+  return directChildren.every((child) => {
+    if (child.localName === "pPr") return true;
+    if (child.localName !== "r") return false;
+    return childElements(child).every((runChild) =>
+      ["rPr", "t", "br", "cr", "tab"].includes(runChild.localName),
+    );
+  });
+}
+
+function splitParagraphAtManualBreaks(documentNode: globalThis.Document, paragraph: Element): Element[] {
+  if (!canSplitWordParagraph(paragraph) || isInsideWordTable(paragraph)) return [paragraph];
+  if (!childElements(paragraph).some((child) =>
+    child.localName === "r" && childElements(child).some((runChild) => ["br", "cr"].includes(runChild.localName)),
+  )) return [paragraph];
+
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  const segments: Element[][] = [[]];
+
+  for (const run of childElements(paragraph).filter((child) => child.localName === "r")) {
+    const runProperties = childElements(run).find((child) => child.localName === "rPr");
+    let segmentRun: Element | null = null;
+
+    const appendRunChild = (runChild: Element) => {
+      if (!segmentRun) {
+        segmentRun = documentNode.createElementNS(WORD_NS, "w:r");
+        if (runProperties) segmentRun.appendChild(documentNode.importNode(runProperties, true));
+        segments[segments.length - 1].push(segmentRun);
+      }
+      segmentRun.appendChild(documentNode.importNode(runChild, true));
+    };
+
+    for (const runChild of childElements(run)) {
+      if (runChild.localName === "rPr") continue;
+      if (["br", "cr"].includes(runChild.localName)) {
+        segmentRun = null;
+        segments.push([]);
+        continue;
+      }
+      appendRunChild(runChild);
+    }
+  }
+
+  if (segments.length < 2) return [paragraph];
+
+  const paragraphs = segments.map((segment) => {
+    const replacement = documentNode.createElementNS(WORD_NS, "w:p");
+    if (properties) replacement.appendChild(documentNode.importNode(properties, true));
+    for (const child of segment) replacement.appendChild(child);
+    return replacement;
+  });
+  const parent = paragraph.parentNode;
+  if (!parent) return [paragraph];
+  for (const replacement of paragraphs) parent.insertBefore(replacement, paragraph);
+  parent.removeChild(paragraph);
+  return paragraphs;
+}
+
+function splitBodyParagraphsAtManualBreaks(documentNode: globalThis.Document): void {
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  for (const paragraph of paragraphs) splitParagraphAtManualBreaks(documentNode, paragraph);
+}
+
 function formatWordDocument(documentNode: globalThis.Document): WordFormatReport {
+  splitBodyParagraphsAtManualBreaks(documentNode);
   const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
   let fontRunCount = 0;
   let chineseRunCount = 0;
