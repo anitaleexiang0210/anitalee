@@ -112,7 +112,7 @@ export default function Home() {
           <SectionIntro
             label="代表经历"
             title="先看我做成过什么，再看我准备去哪里"
-            body="我没有把所有公司和项目都铺开，只保留最能说明复杂产品、企业交付与客户沟通能力的三段证据。"
+            body="我没有把所有公司和项目都铺开，只保留最能说明复杂产品、企业交付与客户沟通能力的四段证据。"
           />
 
           <div className="case-list">
@@ -190,7 +190,7 @@ export default function Home() {
           <SectionIntro
             label="职业路径"
             title="我的经历不算笔直，但每一段都留下了今天能用的能力"
-            body="产品让我会梳理复杂问题，心理咨询训练让我更会倾听，商务与交付让我理解企业现场。现在，这些线索正在企业 AI 落地上重新汇合。"
+            body="产品让我会梳理复杂问题，心理咨询训练让我更会倾听，商务与交付让我理解企业现场。现在，这些线索正在企业 AI 产品与解决方案实践中重新汇合。"
           />
 
           <div className="timeline">
@@ -230,7 +230,7 @@ export default function Home() {
               <a href={`mailto:${contact.email}`}>邮件联系</a>
             </p>
             <p className="contact-item">
-              <a href={contact.resumeHref} download="大想 | 企业AI实践 | 简历.pdf">获取 PDF 简历</a>
+              <a href={contact.resumeHref} download="李想-企业AI产品与解决方案-一页简历-2026-08-16.pdf">获取 PDF 简历</a>
             </p>
             <p className="contact-item">
               <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">小红书</a>

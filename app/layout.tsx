@@ -9,7 +9,7 @@ const inter = Inter({
 
 const title = "大想 · 企业 AI 实践";
 const description =
-  "二十年产品与交付经验，专注企业 AI 场景落地——从需求澄清、方案设计到验证交付。";
+  "近二十年企业产品与项目协作经验，专注企业 AI 产品与解决方案——从需求诊断、方案设计到评测交付。";
 const siteUrl = "https://anitalee.cn";
 
 export const metadata: Metadata = {
