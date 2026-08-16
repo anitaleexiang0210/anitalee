@@ -3,7 +3,7 @@ export const profile = {
   handle: "anitalee",
   role: "企业 AI 产品经理 / 企业 AI 解决方案与交付",
   tags: ["产品型 FDE", "需求诊断", "AI 协同交付"],
-  statement: "把复杂需求听明白，把 AI 方案推进到可用、可评测、可交付",
+  statement: "把复杂需求听明白，把落地方案做出来",
   introduction:
     "近 20 年企业产品、交互设计与项目协作经验，覆盖 CRM / SaaS、央企数字化、政务集成与网络安全。擅长听懂未说清的需求，把复杂流程转成方案、原型和交付节点；当前专注企业 AI 产品与解决方案实践。",
   target:
