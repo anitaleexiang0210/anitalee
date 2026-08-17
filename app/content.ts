@@ -142,7 +142,7 @@ export const aiProjects = [
     proof: ["需求判断", "规则设计", "AI 协作实现", "公开部署"],
     image: "/career-calibrator.png",
     imageAlt: "职业靶心校准器已上线页面截图",
-    href: "https://career.anitalee.cn",
+    href: "/career",
     linkLabel: "打开在线版本",
   },
   {
