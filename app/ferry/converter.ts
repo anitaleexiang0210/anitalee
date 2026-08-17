@@ -40,6 +40,7 @@ export type ConversionMeta = {
   formulaCount: number;
   repairedCount: number;
   normalizedFormulaCount?: number;
+  plainTextCleanupCount?: number;
   formulaResidualCount?: number;
   repairReport?: WordRepairReport;
   formatReport?: WordFormatReport;
@@ -1692,6 +1693,7 @@ function appendCandidateSegments(
   formulaIndex: { value: number },
 ): number {
   let repairedCount = 0;
+  let hasOutput = false;
   const properties = childElements(candidate.paragraph).find((child) => child.localName === "pPr");
   for (const child of childElements(candidate.paragraph)) {
     if (child !== properties) candidate.paragraph.removeChild(child);
@@ -1701,19 +1703,31 @@ function appendCandidateSegments(
     if (segment.type === "text") {
       const chunks = segment.value.split("\n");
       chunks.forEach((chunk, index) => {
-        if (chunk) candidate.paragraph.appendChild(cloneTextRun(documentNode, candidate.sourceRun, chunk));
+        if (chunk) {
+          candidate.paragraph.appendChild(cloneTextRun(documentNode, candidate.sourceRun, chunk));
+          if (chunk.trim()) hasOutput = true;
+        }
         if (index < chunks.length - 1) {
           const breakRun = cloneTextRun(documentNode, candidate.sourceRun, "");
           breakRun.appendChild(documentNode.createElementNS(WORD_NS, "w:br"));
           candidate.paragraph.appendChild(breakRun);
+          hasOutput = true;
         }
       });
       continue;
+    }
+    // A display formula inside a table cell should start on its own line;
+    // otherwise long units such as `(mg/L)^(-1/n)` can be pinned to a cell edge.
+    if (segment.display && hasOutput && isInsideWordTable(candidate.paragraph)) {
+      const breakRun = cloneTextRun(documentNode, candidate.sourceRun, "");
+      breakRun.appendChild(documentNode.createElementNS(WORD_NS, "w:br"));
+      candidate.paragraph.appendChild(breakRun);
     }
     const formulaNode = formulaNodes[formulaIndex.value++];
     if (!formulaNode) continue;
     candidate.paragraph.appendChild(documentNode.importNode(formulaNode, true));
     repairedCount += 1;
+    hasOutput = true;
   }
   return repairedCount;
 }
@@ -1759,6 +1773,23 @@ function cleanWordMarkdownArtifacts(documentNode: globalThis.Document): number {
     }
     if (cleanedText) paragraph.appendChild(cloneTextRun(documentNode, runs[0], cleanedText));
     cleanedCount += 1;
+  }
+  return cleanedCount;
+}
+
+// AI and Markdown exports sometimes leave escaped punctuation in ordinary
+// Word text, for example `pH \> 4.0` or `\-COOH`. Only touch w:t nodes so
+// backslashes inside native OMML formulas and ASCII diagrams stay intact.
+function cleanWordPlainTextEscapes(documentNode: globalThis.Document): number {
+  let cleanedCount = 0;
+  const textNodes = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "t"));
+  for (const textNode of textNodes) {
+    const value = textNode.textContent ?? "";
+    const cleaned = value.replace(/\\([~+><-])/g, (_match, symbol: string) => {
+      cleanedCount += 1;
+      return symbol;
+    });
+    if (cleaned !== value) textNode.textContent = cleaned;
   }
   return cleanedCount;
 }
@@ -1987,12 +2018,14 @@ export async function inspectWordOptimization(file: File, options: WordOptimizat
   if (!documentFile) throw new Error("不是可读取的 Word 文档");
   const documentNode = new DOMParser().parseFromString(await documentFile.async("string"), "application/xml");
   const repairReport = inspectWordRepairReport(documentNode);
+  const plainTextCleanupCount = cleanWordPlainTextEscapes(documentNode);
   const formatReport = options.formatDocument ? formatWordDocument(documentNode) : emptyWordFormatReport();
   return {
     encoding: "DOCX / UTF-8",
     formulaCount: repairReport.detectedCount,
     repairedCount: 0,
     normalizedFormulaCount: 0,
+    plainTextCleanupCount,
     formulaResidualCount: repairReport.remainingCount,
     repairReport,
     formatReport,
@@ -2022,6 +2055,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
     repairedCount += appendCandidateSegments(documentNode, candidate, formulaNodes, formulaIndex);
   }
 
+  const plainTextCleanupCount = cleanWordPlainTextEscapes(documentNode);
   const serialized = new XMLSerializer().serializeToString(documentNode);
   const outputDocument = new DOMParser().parseFromString(serialized, "application/xml");
   const formatReport = options.formatDocument ? formatWordDocument(outputDocument) : emptyWordFormatReport();
@@ -2048,6 +2082,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
       formulaCount: repairReport.detectedCount,
       repairedCount: 0,
       normalizedFormulaCount: repairedCount + normalizedFunctionCount,
+      plainTextCleanupCount,
       formulaResidualCount: repairReport.remainingCount,
       repairReport,
       formatReport,

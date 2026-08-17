@@ -57,6 +57,7 @@ function metaNote(meta: ConversionMeta): string {
   if (meta.encoding && meta.encoding !== "DOCX / UTF-8") notes.push(`检测编码：${meta.encoding}`);
   if (meta.formulaCount > 0) notes.push(`识别公式：${meta.formulaCount} 个`);
   if ((meta.normalizedFormulaCount ?? 0) > 0) notes.push(`自动整理：${meta.normalizedFormulaCount} 个`);
+  if ((meta.plainTextCleanupCount ?? 0) > 0) notes.push(`清理文本转义：${meta.plainTextCleanupCount} 处`);
   if (meta.repairedCount > 0) notes.push(`修复疑似乱码：${meta.repairedCount} 处`);
   if ((meta.formulaResidualCount ?? 0) > 0) notes.push(`有 ${meta.formulaResidualCount} 个公式需要人工检查`);
   if (meta.formatReport?.enabled) {
