@@ -147,7 +147,7 @@
 }
 
 .home-introduction {
-  max-width: 880px;
+  max-width: none;
   margin: 30px 0 0;
   color: var(--home-soft);
   font-size: 18px;
