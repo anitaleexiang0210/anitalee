@@ -124,16 +124,6 @@ export const cases = [
 
 export const aiProjects = [
   {
-    status: "研究与定义 · MVP 验证中",
-    title: "NextPiece｜职业拼图",
-    summary:
-      "面向职业转型者的 AI 职业分析产品。已完成产品定位、竞品分析、AI 输入输出结构、结果解释与隐私边界设计，正在通过外部研究验证核心流程与行动计划是否真正有用。",
-    proof: ["产品定位", "AI 输入输出", "结果解释", "隐私边界"],
-    imageAlt: "NextPiece 正在进行外部研究与 MVP 验证",
-    href: "/career",
-    linkLabel: "查看新品预告",
-  },
-  {
     status: "已上线",
     title: "文档渡口 · AI 文档转换与公式修复",
     summary:
@@ -145,12 +135,25 @@ export const aiProjects = [
     linkLabel: "打开在线版本",
   },
   {
-    status: "工作实践中",
-    title: "企业方案与投标材料 AI 协作",
+    status: "已上线",
+    title: "职业靶心校准器",
     summary:
-      "在企业项目中使用 AI 辅助资料整理、方案结构、初稿与质量检查；关键结论及敏感信息坚持人工复核，不把工作辅助包装成未经验证的企业转型成果。",
-    proof: ["资料整理", "方案结构", "质量检查", "人工复核"],
-    imageAlt: "企业方案与投标材料 AI 协作实践持续积累中",
+      "针对职业转型时目标岗位与自身能力之间不透明的问题，对照用户导入的真实招聘要求，输出能力差距、硬性条件与下一步行动。它从个人求职问题出发，先用规则和可解释的分析跑通了一个公开可用的职业校准闭环。",
+    proof: ["需求判断", "规则设计", "AI 协作实现", "公开部署"],
+    image: "/career-calibrator.png",
+    imageAlt: "职业靶心校准器已上线页面截图",
+    href: "https://career.anitalee.cn",
+    linkLabel: "打开在线版本",
+  },
+  {
+    status: "即将开始",
+    title: "NextPiece｜职业拼图",
+    summary:
+      "在职业靶心校准器的基础上，进一步把经历、目标职业和真实岗位要求拼在一起，识别已有、可迁移、待补和硬门槛四类拼图，最终交付一份具体的行动计划。",
+    proof: ["经历解析", "岗位对照", "职业拼图", "行动计划"],
+    imageAlt: "NextPiece 职业拼图即将开始产品研发",
+    href: "/NextPiece",
+    linkLabel: "查看产品预告",
   },
 ];
 

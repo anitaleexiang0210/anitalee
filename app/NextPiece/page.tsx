@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     "把经历、目标方向与真实岗位要求拼在一起，找到下一个最值得补齐的职业拼图。",
 };
 
-export default function CareerPage() {
+export default function NextPiecePage() {
   const pieces = [
     {
       index: "01",
