@@ -1392,8 +1392,71 @@ type WordFormulaCandidate = {
   segments: MathSegment[];
 };
 
-const BARE_LATEX_SOURCE = /\\(?:frac|dfrac|tfrac|text|mathrm|mathbf|mathit|mathcal|mathbb|sqrt|cdot|times|ln|log|sum|prod|int|left|right|begin|end|multicolumn)\b/;
+const BARE_LATEX_SOURCE = /\\(?:frac|dfrac|tfrac|text|mathrm|mathbf|mathit|mathcal|mathbb|mathscr|operatorname|sqrt|cdot|times|div|pm|mp|ln|log|sum|prod|int|left|right|begin|end|multicolumn)\b|\\%/;
 const AI_PLAINTEXT_LABEL = /^\s*Plaintext(?:\s+|$)/i;
+
+// This covers the high-confidence inline fragments frequently produced by AI
+// exports, such as `0.5\\text{ g/L}` and `\\text{Pb}^{2+}`. We only repair
+// self-contained commands here; surrounding prose stays as regular Word text.
+const BARE_TEXT_ATOM = String.raw`\\(?:text|mathrm|mathbf|mathit|mathcal|mathbb|mathscr|operatorname)\{[^{}]*\}(?:_\{[^{}]*\}|_[A-Za-z0-9])?(?:\^\{[^{}]*\}|\^[+\-A-Za-z0-9])?`;
+const BARE_INLINE_LATEX = new RegExp(
+  String.raw`(?:\d+(?:\.\d+)?\s*)?(?:${BARE_TEXT_ATOM}(?:\s*(?:\\(?:cdot|times|div|pm|mp)|[·*/])\s*(?:${BARE_TEXT_ATOM}|[A-Za-z0-9.]+))*|\\%)(?:\s*=\s*[+\-]?\d+(?:\.\d+)?)?`,
+  "g",
+);
+
+function isBareFormulaParagraph(value: string): boolean {
+  const text = value.trim();
+  if (!text || /[\u3400-\u9fff]/.test(text) || /[。；，、：]/.test(text)) return false;
+  if (!BARE_LATEX_SOURCE.test(text)) return false;
+  return /(?:=|\\(?:frac|dfrac|tfrac|left|sqrt|ln|log))/.test(text);
+}
+
+function splitBareFormulaParagraph(value: string): MathSegment[] {
+  const starts: number[] = [];
+  const equationStart = /(^|\s)(?=(?:\\(?:ln|log)(?:\([^)]*\)|\s+[A-Za-z][A-Za-z0-9_{}]*)|\\(?:frac|dfrac|tfrac)\{[^{}]*\}\{[^{}]*\}|[A-Za-z][A-Za-z0-9_{}]*)\s*=)/g;
+  let match: RegExpExecArray | null;
+  while ((match = equationStart.exec(value))) {
+    starts.push(match.index + match[1].length);
+    if (!match[0].length) equationStart.lastIndex += 1;
+  }
+
+  const uniqueStarts = [...new Set(starts)].filter((start) => start < value.length);
+  if (!uniqueStarts.length) return [{ type: "math", value: value.trim(), display: true }];
+
+  const segments: MathSegment[] = [];
+  if (uniqueStarts[0] > 0) segments.push({ type: "text", value: value.slice(0, uniqueStarts[0]) });
+  uniqueStarts.forEach((start, index) => {
+    const end = uniqueStarts[index + 1] ?? value.length;
+    const formula = value.slice(start, end).trim();
+    if (formula) segments.push({ type: "math", value: formula, display: true });
+    if (index < uniqueStarts.length - 1) segments.push({ type: "text", value: "\n" });
+  });
+  return segments.length ? segments : [{ type: "text", value }];
+}
+
+function splitBareInlineLatex(value: string): MathSegment[] {
+  BARE_INLINE_LATEX.lastIndex = 0;
+  const segments: MathSegment[] = [];
+  let textStart = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BARE_INLINE_LATEX.exec(value))) {
+    const formula = match[0];
+    if (!formula || !BARE_LATEX_SOURCE.test(formula)) continue;
+    if (textStart < match.index) segments.push({ type: "text", value: value.slice(textStart, match.index) });
+    segments.push({ type: "math", value: formula.trim() });
+    textStart = match.index + formula.length;
+  }
+  if (textStart < value.length) segments.push({ type: "text", value: value.slice(textStart) });
+  return segments.length ? segments : [{ type: "text", value }];
+}
+
+function splitWordFormulaSource(value: string): MathSegment[] {
+  const delimited = splitMarkdownMath(value);
+  if (delimited.some((segment) => segment.type === "math")) {
+    return delimited.flatMap((segment) => segment.type === "math" ? [segment] : splitBareInlineLatex(segment.value));
+  }
+  return isBareFormulaParagraph(value) ? splitBareFormulaParagraph(value) : splitBareInlineLatex(value);
+}
 
 function paragraphSourceText(paragraph: Element): string {
   const parts: string[] = [];
@@ -1422,7 +1485,7 @@ function wordTextFormulaCandidates(documentNode: globalThis.Document): WordFormu
     if (hasUnsupportedRun) continue;
 
     const text = paragraphSourceText(paragraph);
-    const segments = splitMarkdownMath(text);
+    const segments = splitWordFormulaSource(text);
     if (!segments.some((segment) => segment.type === "math")) continue;
     candidates.push({ paragraph, sourceRun: runs[0], text, segments });
   }
@@ -1513,10 +1576,11 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
   for (const paragraph of paragraphs) {
     const text = paragraphText(paragraph);
     if (!text) continue;
-    const segments = splitMarkdownMath(text);
-    const delimitedCount = segments.filter((segment) => segment.type === "math").length;
+    const segments = splitWordFormulaSource(text);
+    const formulaCount = segments.filter((segment) => segment.type === "math").length;
+    const delimitedCount = splitMarkdownMath(text).filter((segment) => segment.type === "math").length;
     const repairableHere = candidateCounts.get(paragraph) ?? 0;
-    const splitAcrossRuns = Math.max(0, delimitedCount - repairableHere);
+    const splitAcrossRuns = Math.max(0, formulaCount - repairableHere);
     const location = locations.get(paragraph) ?? "正文";
 
     if (splitAcrossRuns > 0) {
