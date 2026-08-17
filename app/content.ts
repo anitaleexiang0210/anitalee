@@ -127,10 +127,10 @@ export const aiProjects = [
     status: "已上线",
     title: "文档渡口 · AI 文档转换与公式修复",
     summary:
-      "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，也能把 AI 导出 Word 中裸露的常见公式源码修复为可编辑公式。长论文 51 个公式、真实 Word 样本 71 个公式回归均实现源码残留为 0，并保留失败位置与人工检查提示。",
-    proof: ["本地处理", "MD ↔ Word", "51 / 71 公式回归", "源码残留 0"],
+      "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，支持常见论文公式、表格公式、AI 双重转义和典型中文乱码处理；Word 优化还能修复裸露或结构异常的公式、整理基础论文格式，并输出修复结果与需人工检查的位置。长论文 51 个公式、真实 Word 样本 71 个公式回归均实现源码残留为 0。",
+    proof: ["本地处理", "MD ↔ Word", "Word 公式修复", "失败位置报告"],
     image: "/ferry-tool.png",
-    imageAlt: "文档渡口在线工具界面截图",
+    imageAlt: "文档渡口新版在线工作台界面截图",
     href: "/ferry",
     linkLabel: "打开在线版本",
   },
