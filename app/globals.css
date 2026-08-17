@@ -595,13 +595,13 @@ h1 {
   overflow: hidden;
   background: var(--sage-soft);
   border-bottom: 1px solid var(--line);
+  aspect-ratio: 16 / 9;
 }
 
 .home-project-visual img {
   display: block;
   width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
+  height: 100%;
   object-fit: cover;
   object-position: top;
 }
