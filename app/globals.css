@@ -1970,45 +1970,6 @@ h1 {
   line-height: 1.6;
 }
 
-.ferry-tool-details {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.ferry-tool-details article {
-  display: flex;
-  flex-direction: column;
-  padding: 19px 20px;
-  border-top: 2px solid var(--ferry-line);
-}
-
-.ferry-tool-details article header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.ferry-tool-details span {
-  color: var(--ferry-orange);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.ferry-tool-details h2 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.ferry-tool-details p {
-  margin: 6px 0 0;
-  color: var(--ferry-muted);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 .ferry-tool-sr-only {
   position: absolute;
   width: 1px;
@@ -2124,8 +2085,7 @@ h1 {
     text-align: center;
   }
 
-  .ferry-tool-actions,
-  .ferry-tool-details {
+  .ferry-tool-actions {
     grid-template-columns: 1fr;
   }
 
