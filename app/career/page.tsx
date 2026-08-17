@@ -3,9 +3,9 @@ import JobScout from "./JobScout";
 import "./career.css";
 
 export const metadata: Metadata = {
-  title: "职业靶心校准器｜大想的AI实践",
+  title: "职业靶心校准器｜大想的 AI 实践",
   description:
-    "AI 帮你看清：你离目标岗位还差什么。以终为始，先瞄准靶心，再一步一步靠近。",
+    "贴一份真实 JD，对照自己的经历与硬条件，找到优势、缺口和最值得先做的一步。",
 };
 
 export default function CareerPage() {
