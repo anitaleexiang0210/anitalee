@@ -129,7 +129,7 @@ export const aiProjects = [
     summary:
       "浏览器本地完成 Markdown 与 Word (.docx) 双向转换，支持常见论文公式、表格公式、AI 双重转义和典型中文乱码处理；Word 优化还能修复裸露或结构异常的公式、整理基础论文格式，并输出修复结果与需人工检查的位置。长论文 51 个公式、真实 Word 样本 71 个公式回归均实现源码残留为 0。",
     proof: ["本地处理", "MD ↔ Word", "Word 公式修复", "失败位置报告"],
-    image: "/ferry-tool.png",
+    image: "/ferry-tool-v2.png",
     imageAlt: "文档渡口新版在线工作台界面截图",
     href: "/ferry",
     linkLabel: "打开在线版本",
