@@ -137,7 +137,7 @@
 }
 
 .home-opening h1 {
-  max-width: 920px;
+  max-width: none;
   margin: 0;
   color: var(--home-ink);
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -299,18 +299,7 @@
 }
 
 .home-section-heading {
-  display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
-  gap: 24px;
   margin-bottom: 60px;
-}
-
-.home-section-index {
-  margin: 5px 0 0;
-  color: var(--home-rose);
-  font-family: Arial, sans-serif;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .home-section-label {
@@ -502,10 +491,6 @@
 .home-method {
   background: var(--home-ink);
   color: var(--home-white);
-}
-
-.home-method .home-section-index {
-  color: #e9a6b4;
 }
 
 .home-method .home-section-label {
@@ -949,13 +934,7 @@
   }
 
   .home-section-heading {
-    grid-template-columns: 1fr;
-    gap: 14px;
     margin-bottom: 42px;
-  }
-
-  .home-section-index {
-    margin-top: 0;
   }
 
   .home-section-heading h2 {

@@ -12,19 +12,16 @@ import {
 import "./home.css";
 
 function SectionHeading({
-  index,
   label,
   title,
   body,
 }: {
-  index: string;
   label: string;
   title: string;
   body?: string;
 }) {
   return (
     <div className="home-section-heading">
-      <p className="home-section-index">{index}</p>
       <div>
         <p className="home-section-label">{label}</p>
         <h2>{title}</h2>
@@ -67,9 +64,6 @@ export default function Home() {
 
         <div className="home-opening-links" aria-label="快速入口">
           <a href="#work">看正在做的产品 <span aria-hidden="true">↓</span></a>
-          <a href={contact.resumeHref} download="李想-企业AI产品与解决方案-一页简历-2026-08-16.pdf">
-            PDF 简历 <span aria-hidden="true">↗</span>
-          </a>
           <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">
             大想的 AI 实践 <span aria-hidden="true">↗</span>
           </a>
@@ -108,7 +102,6 @@ export default function Home() {
 
       <section className="home-section home-shell" id="work">
         <SectionHeading
-          index="01"
           label="正在做的产品"
           title="不是作品陈列，是还在继续发生的实践"
           body="每个产品都从一个真实问题开始。这里保留它现在的状态、能用的入口和已经获得的证据。"
@@ -159,7 +152,6 @@ export default function Home() {
       <section className="home-section home-method" id="capabilities">
         <div className="home-shell">
           <SectionHeading
-            index="02"
             label="我怎样推进一件事"
             title="从听懂问题，到把它推到可以使用"
             body="技术会继续变化，但理解业务、做出判断、推动协作和验证结果，是我长期积累下来的工作方式。"
@@ -178,7 +170,6 @@ export default function Home() {
 
       <section className="home-section home-shell" id="experience">
         <SectionHeading
-          index="03"
           label="代表经历"
           title="一些真正改变了我工作方式的现场"
           body="不把所有公司铺成一张长简历，只留下最能说明产品判断、复杂业务与企业交付的几段经历。"
@@ -210,7 +201,6 @@ export default function Home() {
       <section className="home-section home-story" id="about">
         <div className="home-shell">
           <SectionHeading
-            index="04"
             label="走过的路"
             title="经历不算笔直，但它们最后汇到了一起"
             body="产品让我会梳理复杂问题，心理咨询训练让我更会倾听，商务与交付让我理解企业现场。"
