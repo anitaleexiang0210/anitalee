@@ -359,8 +359,8 @@ export default function FerryPage() {
           <div className="ferry-tool-copy">
             <p className="ferry-tool-eyebrow">Local AI document converter & repair</p>
             <h1>
-              AI 文档，
-              <span>转好，也修好。</span>
+              文档转得好，
+              <span>公式修得好。</span>
             </h1>
             <p>
               不上传云端。完成 Markdown 与 Word 双向转换，也能修复 AI 导出 Word 中裸露或结构异常的常见论文公式，并做基础论文格式整理。
