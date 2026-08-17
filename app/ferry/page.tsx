@@ -351,7 +351,7 @@ export default function FerryPage() {
           </a>
           <div className="ferry-tool-state" aria-live="polite">
             <span className="ferry-tool-state-dot" aria-hidden="true" />
-            <span>浏览器本地处理</span>
+            <span>文件始终留在本机</span>
           </div>
         </header>
 
@@ -377,7 +377,7 @@ export default function FerryPage() {
 
           <section className="ferry-tool-card" aria-label="文档转换工具">
             <div className="ferry-tool-card-head">
-              <span className="ferry-tool-step">选择转换方向</span>
+              <span className="ferry-tool-step">选择处理方式</span>
               <div className="ferry-tool-switch" aria-label="转换方向">
                 <button
                   className={direction === "md-to-word" ? "active" : ""}
@@ -507,7 +507,7 @@ export default function FerryPage() {
                 <button className="ferry-tool-primary" type="button" onClick={convert} disabled={!file || busy}>
                   {busy ? "正在处理..." : direction === "word-to-md" ? "转换并下载 Markdown" : direction === "word-optimize" ? "优化并下载 Word" : "转换并下载 Word"}
                 </button>
-                <p className="ferry-tool-privacy">文件不离开浏览器，适合内容流转</p>
+                <p className="ferry-tool-privacy">0 字节上传 · 不保留文件</p>
               </div>
 
               {message && (
