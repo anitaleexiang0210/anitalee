@@ -575,30 +575,6 @@ export default function FerryPage() {
           </p>
         </section>
 
-        <section className="ferry-tool-details" aria-label="转换能力说明">
-          <article>
-            <header>
-              <span>01</span>
-              <h2>公式规范化</h2>
-            </header>
-            <p>标题、段落、列表、表格和图片会尽量保持结构；常见分式、上下标、单位、化学式和 AI 双重转义公式会转为 Word 可编辑公式。</p>
-          </article>
-          <article>
-            <header>
-              <span>02</span>
-              <h2>结果可检查</h2>
-            </header>
-            <p>文件只在浏览器里读取和生成，不上传到服务器，也不保存历史记录。Markdown 长论文样本识别 51 个公式；最新真实 Word 样本修复 71 个公式，源码残留均为 0。</p>
-          </article>
-          <article>
-            <header>
-              <span>03</span>
-              <h2>边界清楚</h2>
-            </header>
-            <p>Word 优化会修复高置信度公式源码和部分异常 Word 公式结构，并可选整理中文正文宋体、首行缩进和英文正文不缩进；不会自动统一字号、行距、页边距和整篇论文模板，复杂公式和布局仍需人工检查。</p>
-          </article>
-        </section>
-
         <p className="ferry-tool-footer-ctr">
           已有 <strong>{pageCount.toLocaleString()}</strong> 次使用过文档渡口
         </p>
