@@ -131,7 +131,7 @@ export const aiProjects = [
     proof: ["本地处理", "MD ↔ Word", "51 / 71 公式回归", "源码残留 0"],
     image: "/ferry-tool.png",
     imageAlt: "文档渡口在线工具界面截图",
-    href: "https://anitalee.cn/ferry",
+    href: "/ferry",
     linkLabel: "打开在线版本",
   },
   {
@@ -192,9 +192,9 @@ export const credentials = [
 ];
 
 export const navigation = [
-  { label: "能力", href: "#capabilities" },
+  { label: "现在", href: "#now" },
+  { label: "作品", href: "#work" },
   { label: "经历", href: "#experience" },
-  { label: "AI 实践", href: "#ai-work" },
   { label: "关于我", href: "#about" },
   { label: "联系我", href: "#contact" },
 ];
