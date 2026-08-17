@@ -591,6 +591,21 @@ h1 {
   object-position: top center;
 }
 
+.home-project-visual.has-image {
+  overflow: hidden;
+  background: var(--sage-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.home-project-visual img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: top;
+}
+
 .project-visual.is-placeholder {
   display: grid;
   place-items: center;
