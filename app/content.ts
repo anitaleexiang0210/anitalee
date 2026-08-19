@@ -13,8 +13,6 @@ export const profile = {
 export const contact = {
   email: "anitaleexiang@gmail.com",
   xiaohongshu: "https://xhslink.cn/m/4MP1RrEDtWQ",
-  resumeLabel: "获取 PDF 简历",
-  resumeHref: "/%E5%A4%A7%E6%83%B3-%E4%BC%81%E4%B8%9AAI%E5%AE%9E%E8%B7%B5-%E7%AE%80%E5%8E%86.pdf",
 };
 
 export const evidence = [

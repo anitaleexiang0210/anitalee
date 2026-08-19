@@ -237,9 +237,6 @@ export default function Home() {
           <h2>有合适的岗位、项目，或者一个值得一起验证的问题，我们可以聊聊。</h2>
           <div className="home-contact-links">
             <a href={`mailto:${contact.email}`}>邮件联系 <span aria-hidden="true">↗</span></a>
-            <a href={contact.resumeHref} download="李想-企业AI产品与解决方案-一页简历-2026-08-16.pdf">
-              获取 PDF 简历 <span aria-hidden="true">↓</span>
-            </a>
             <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">
               小红书 <span aria-hidden="true">↗</span>
             </a>
