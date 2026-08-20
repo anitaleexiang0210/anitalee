@@ -7,9 +7,9 @@ const inter = Inter({
   display: "swap",
 });
 
-const title = "大想 · 企业 AI 实践";
+const title = "大想 · AI 工具与 Agent 实践";
 const description =
-  "近二十年企业产品与项目协作经验，专注企业 AI 产品与解决方案——从需求诊断、方案设计到评测交付。";
+  "近二十年企业产品与项目协作经验，正在深入学习 AI 工具与 Agent，把真实工作场景沉淀为可使用、可分享的方法。";
 const siteUrl = "https://anitalee.cn";
 
 export const metadata: Metadata = {
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "大想 · 企业 AI 实践",
+        alt: "大想 · AI 工具与 Agent 实践",
       },
     ],
   },

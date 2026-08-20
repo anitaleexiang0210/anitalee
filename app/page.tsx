@@ -1,44 +1,52 @@
 import {
   aiProjects,
-  capabilities,
-  careerPhases,
-  cases,
   contact,
-  credentials,
-  evidence,
   navigation,
-  profile,
 } from "./content";
 import "./home.css";
 
-function SectionHeading({
-  label,
-  title,
-  body,
-}: {
-  label: string;
-  title: string;
-  body?: string;
-}) {
+const focusItems = [
+  {
+    title: "AI 协同工作流",
+    body: "把 AI 放入信息整理与方案输出的关键链路，减少无效反复。",
+  },
+  {
+    title: "复杂业务理解",
+    body: "用 AI 帮助拆解复杂问题，建立清晰的结构与可复用的方法。",
+  },
+  {
+    title: "沟通与交付提效",
+    body: "在真实沟通场景中，让 AI 提升表达、协作与交付的确定性。",
+  },
+];
+
+const shareItems = [
+  "我如何用 AI 帮助写好一份会议文档",
+  "让 AI 陪你做调研，而不是替你判断",
+  "和 AI 一起做项目：更快看清本质",
+];
+
+const shareThumbPositions = ["left center", "center center", "right center"];
+
+function SectionRule({ label, tone = "sage" }: { label: string; tone?: "sage" | "rose" }) {
   return (
-    <div className="home-section-heading">
-      <div>
-        <p className="home-section-label">{label}</p>
-        <h2>{title}</h2>
-        {body ? <p className="home-section-body">{body}</p> : null}
-      </div>
+    <div className={`home-section-rule is-${tone}`}>
+      <span aria-hidden="true" />
+      <p>{label}</p>
     </div>
   );
 }
 
 export default function Home() {
+  const project = aiProjects[0];
+
   return (
     <main className="home-page">
       <header className="home-masthead" id="top">
         <div className="home-shell home-masthead-inner">
           <a className="home-wordmark" href="#top" aria-label="回到首页">
             <strong>大想</strong>
-            <span>{profile.handle}</span>
+            <span>/ Anita</span>
           </a>
           <nav className="home-nav" aria-label="主要导航">
             {navigation.map((item) => (
@@ -47,119 +55,32 @@ export default function Home() {
               </a>
             ))}
           </nav>
+          <p className="home-header-note"><span aria-hidden="true" /> 在真实工作中用好 AI</p>
         </div>
       </header>
 
-      <section className="home-opening home-shell" aria-labelledby="home-title">
-        <div className="home-identity">
-          <img className="home-portrait" src="/portrait.jpg" alt="Anita / 大想" />
-          <div>
-            <p className="home-presence"><span aria-hidden="true" /> 现在在北京</p>
-            <p className="home-role">{profile.role}</p>
-          </div>
+      <section className="home-hero home-shell" aria-labelledby="home-title">
+        <div className="home-hero-copy">
+          <h1 id="home-title">
+            <span>把 AI 用进真实工作</span>
+            <span>再把方法讲给普通人</span>
+          </h1>
+          <p className="home-introduction">产品、复杂业务、客户沟通和交付现场，是我把 AI 工具放进真实工作时依靠的背景，而不是一份需要反复投递的简历。</p>
+          <a className="home-primary-link" href="#work">了解我的实践 <span aria-hidden="true">→</span></a>
         </div>
-
-        <h1 id="home-title">{profile.statement}</h1>
-        <p className="home-introduction">{profile.introduction}</p>
-
-        <div className="home-opening-links" aria-label="快速入口">
-          <a href="#work">看正在做的产品 <span aria-hidden="true">↓</span></a>
-          <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">
-            大想的 AI 实践 <span aria-hidden="true">↗</span>
-          </a>
-        </div>
+        <figure className="home-hero-art">
+          <img src="/home-hero-stationery.png" alt="米白纸张上的笔记本、粉色纸张与干花" />
+        </figure>
       </section>
 
-      <section className="home-now" id="now">
-        <div className="home-shell home-now-layout">
-          <div className="home-now-mark" aria-hidden="true">
-            <span>NOW</span>
-            <strong>2026</strong>
-          </div>
-          <div className="home-now-copy">
-            <p>我最近在认真做的事</p>
-            <h2>把过去二十年的产品与企业现场经验，重新放进 AI 时代</h2>
-            <p>
-              先从真实的小问题开始，做出能被使用、能被验证的产品；也把判断、失败和迭代过程公开记录下来。
-            </p>
-          </div>
-          <div className="home-now-note">
-            <p><strong>机会与合作</strong></p>
-            <p>{profile.target}</p>
-            <a href={`mailto:${contact.email}`}>和我聊聊 <span aria-hidden="true">→</span></a>
-          </div>
-        </div>
-      </section>
-
-      <div className="home-evidence home-shell" aria-label="职业证据速览">
-        {evidence.map((item) => (
-          <div className="home-evidence-item" key={item.label}>
-            <strong>{item.value}</strong>
-            <span>{item.label}</span>
-          </div>
-        ))}
-      </div>
-
-      <section className="home-section home-shell" id="work">
-        <SectionHeading
-          label="正在做的产品"
-          title="不是作品陈列，是还在继续发生的实践"
-          body="每个产品都从一个真实问题开始。这里保留它现在的状态、能用的入口和已经获得的证据。"
-        />
-
-        <div className="home-projects">
-          {aiProjects.map((project, index) => (
-            <article className="home-project" key={project.title}>
-              <div className="home-project-head">
-                <span className="home-project-number">{String(index + 1).padStart(2, "0")}</span>
-                <p className="home-project-status">{project.status}</p>
-                <h3>{project.title}</h3>
-              </div>
-
-              <div className="home-project-layout">
-                <div className="home-project-copy">
-                  <p>{project.summary}</p>
-                  <ul aria-label={`${project.title}能力证据`}>
-                    {project.proof.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                  {project.href ? (
-                    <a href={project.href}>
-                      {project.linkLabel} <span aria-hidden="true">→</span>
-                    </a>
-                  ) : null}
-                </div>
-
-                <div className={`home-project-visual ${project.image ? "has-image" : "is-nextpiece"}`}>
-                  {project.image ? (
-                    <img src={project.image} alt={project.imageAlt} />
-                  ) : (
-                    <div className="home-piece-board" aria-label="NextPiece 四类职业拼图示意">
-                      <span>已有</span>
-                      <span>可迁移</span>
-                      <span>待补</span>
-                      <span>硬门槛</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="home-section home-method" id="capabilities">
+      <section className="home-focus" id="now">
         <div className="home-shell">
-          <SectionHeading
-            label="我怎样推进一件事"
-            title="从听懂问题，到把它推到可以使用"
-            body="技术会继续变化，但理解业务、做出判断、推动协作和验证结果，是我长期积累下来的工作方式。"
-          />
-          <div className="home-method-list">
-            {capabilities.map((item) => (
-              <article className="home-method-item" key={item.title}>
-                <span>{item.index}</span>
+          <SectionRule label="当前关注" tone="rose" />
+          <h2>我正在探索的实践方向</h2>
+          <div className="home-focus-grid">
+            {focusItems.map((item, index) => (
+              <article className="home-focus-item" key={item.title}>
+                <span className="home-focus-mark">0{index + 1}</span>
                 <h3>{item.title}</h3>
                 <p>{item.body}</p>
               </article>
@@ -168,82 +89,96 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="home-section home-shell" id="experience">
-        <SectionHeading
-          label="代表经历"
-          title="一些真正改变了我工作方式的现场"
-          body="不把所有公司铺成一张长简历，只留下最能说明产品判断、复杂业务与企业交付的几段经历。"
-        />
-
-        <div className="home-case-list">
-          {cases.map((item) => (
-            <article className="home-case" key={`${item.company}-${item.period}`}>
-              <div className="home-case-meta">
-                <p>{item.period}</p>
-                <strong>{item.company}</strong>
-                <span>{item.category}</span>
-              </div>
-              <div className="home-case-main">
-                <h3>{item.title}</h3>
-                <p>{item.summary}</p>
-                <ul aria-label={`${item.company}经历要点`}>
-                  {item.highlights.map((highlight) => (
-                    <li key={highlight}>{highlight}</li>
-                  ))}
-                </ul>
-                <p className="home-case-result">{item.result}</p>
-              </div>
-            </article>
-          ))}
+      <section className="home-section home-practice" id="work">
+        <div className="home-shell">
+          <SectionRule label="真实实践" />
+          <div className="home-practice-heading">
+            <h2>一个近期的真实实践</h2>
+          </div>
+          <div className="home-practice-grid">
+            <div className="home-practice-copy">
+              <h3>把一份零散需求，变成可落地的交付方案</h3>
+              <p>面对需求不完整、信息分散的场景，我用 AI 协助梳理背景与目标，补全关键约束，拆解执行路径，并产出可讨论的方案初稿。</p>
+              <ol className="home-practice-steps">
+                <li><strong>信息梳理</strong><span>AI 帮助归拢关键点，与暗含的约束对齐</span></li>
+                <li><strong>结构搭建</strong><span>拆解问题，搭建方案骨架</span></li>
+                <li><strong>方案输出</strong><span>形成可讨论的初稿，推动沟通与决策</span></li>
+              </ol>
+              <a className="home-text-link" href={project.href}>{project.linkLabel} <span aria-hidden="true">→</span></a>
+            </div>
+            <figure className="home-practice-visual">
+              <img src={project.image} alt={project.imageAlt} />
+            </figure>
+          </div>
         </div>
       </section>
 
-      <section className="home-section home-story" id="about">
+      <section className="home-section home-sharing" id="share">
         <div className="home-shell">
-          <SectionHeading
-            label="走过的路"
-            title="经历不算笔直，但它们最后汇到了一起"
-            body="产品让我会梳理复杂问题，心理咨询训练让我更会倾听，商务与交付让我理解企业现场。"
-          />
-
-          <div className="home-story-grid">
-            <div className="home-timeline">
-              {careerPhases.map((phase) => (
-                <article className="home-timeline-item" key={phase.period}>
-                  <p>{phase.period}</p>
-                  <div>
-                    <h3>{phase.title}</h3>
-                    <span>{phase.detail}</span>
-                  </div>
-                </article>
+          <SectionRule label="分享与笔记" tone="rose" />
+          <div className="home-sharing-grid">
+            <div className="home-share-list">
+              <h2>最近分享</h2>
+              {shareItems.map((item, index) => (
+                <a className="home-share-item" href="#contact" key={item}>
+                  <img src="/home-practice-notebook.png" alt="" aria-hidden="true" style={{ objectPosition: shareThumbPositions[index] }} />
+                  <span><strong>{item}</strong><small>从真实工作场景出发，记录可复用的方法</small></span>
+                  <span className="home-share-arrow" aria-hidden="true">→</span>
+                </a>
               ))}
+              <a className="home-text-link" href="#contact">查看全部分享 <span aria-hidden="true">→</span></a>
             </div>
+            <article className="home-note" id="notes">
+              <span>随手笔记</span>
+              <p>AI 不会替代你，<br />但会放大你的思考方式和执行力。<br />关键不是会不会用，<br />而是从哪里开始。</p>
+              <strong>— 大想</strong>
+              <a className="home-text-link" href="#contact">阅读更多笔记 <span aria-hidden="true">→</span></a>
+            </article>
+          </div>
+        </div>
+      </section>
 
-            <aside className="home-credentials" aria-labelledby="credentials-title">
-              <p id="credentials-title">教育与训练</p>
-              <ul>
-                {credentials.map((credential) => (
-                  <li key={credential}>{credential}</li>
-                ))}
-              </ul>
-            </aside>
+      <section className="home-section home-about" id="about">
+        <div className="home-shell home-about-grid">
+          <div className="home-about-portrait">
+            <img src="/home-about-lineart.png" alt="一位手捧杯子的女性线稿插画" />
+          </div>
+          <div className="home-about-copy">
+            <SectionRule label="关于我" />
+            <h2>在真实工作里，和 AI 一起把事做好。</h2>
+            <p>我更关心如何把 AI 用在真实问题上，让复杂的工作少一些反复，让协作与交付更清晰。这是我长期的实践，也是我正在分享的方法。</p>
+            <p>我把产品、复杂业务、客户沟通和交付现场的积累，带进 AI 工具与 Agent 实践中。</p>
+            <a className="home-text-link" href="#contact">了解更多关于我 <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
 
       <footer className="home-contact" id="contact">
-        <div className="home-shell home-contact-main">
-          <p className="home-contact-label">联系我 / CONTACT</p>
-          <h2>有合适的岗位、项目，或者一个值得一起验证的问题，我们可以聊聊。</h2>
-          <div className="home-contact-links">
-            <a href={`mailto:${contact.email}`}>邮件联系 <span aria-hidden="true">↗</span></a>
-            <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">
-              小红书 <span aria-hidden="true">↗</span>
-            </a>
+        <div className="home-shell home-contact-grid">
+          <div className="home-contact-main">
+            <p className="home-contact-label">联系我 / CONTACT</p>
+            <h2>一起交流真实的工作与 AI 实践</h2>
+            <p>如果你也在探索如何把 AI 用进工作，欢迎来聊聊你的问题、方法和想法。</p>
+            <div className="home-contact-links">
+              <a href={`mailto:${contact.email}`}>邮件联系 <span aria-hidden="true">↗</span></a>
+              <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">小红书 <span aria-hidden="true">↗</span></a>
+            </div>
           </div>
+          <aside className="home-wechat" aria-label="微信联系">
+            <div className="home-wechat-copy">
+              <span>微信交流</span>
+              <strong>加我微信</strong>
+              <p>欢迎添加，备注“AI 实践”<br />一起交流真实工作中的 AI 用法。</p>
+            </div>
+            <div className="home-wechat-qr">
+              <span className="home-wechat-qr-window">
+                <img src={contact.wechatImage} alt="添加大想工作微信的二维码" />
+              </span>
+            </div>
+          </aside>
         </div>
         <div className="home-shell home-footer-line">
-          <span>Anita / 大想 · Beijing</span>
+          <span>大想 / Anita · 在真实工作中用好 AI</span>
           <a href="#top">回到顶部 ↑</a>
         </div>
       </footer>
