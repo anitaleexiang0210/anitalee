@@ -58,6 +58,7 @@ function metaNote(meta: ConversionMeta): string {
   if (meta.formulaCount > 0) notes.push(`识别公式：${meta.formulaCount} 个`);
   if ((meta.normalizedFormulaCount ?? 0) > 0) notes.push(`自动整理：${meta.normalizedFormulaCount} 个`);
   if ((meta.plainTextCleanupCount ?? 0) > 0) notes.push(`清理文本转义：${meta.plainTextCleanupCount} 处`);
+  if ((meta.comparisonCleanupCount ?? 0) > 0) notes.push(`清理原句对照：${meta.comparisonCleanupCount} 组，保留修改后内容`);
   if (meta.repairedCount > 0) notes.push(`修复疑似乱码：${meta.repairedCount} 处`);
   if ((meta.formulaResidualCount ?? 0) > 0) notes.push(`有 ${meta.formulaResidualCount} 个公式需要人工检查`);
   if (meta.formatReport?.enabled) {
@@ -224,9 +225,12 @@ export default function FerryPage() {
         const formulaMessage = meta.formulaCount > 0
           ? `共发现 ${meta.formulaCount} 处公式源码，其中 ${repairableCount} 处可自动修复${remainingCount > 0 ? `，${remainingCount} 处需要人工检查` : ""}。`
           : "没有检测到可自动修复的公式源码。";
+        const comparisonMessage = (meta.comparisonCleanupCount ?? 0) > 0
+          ? `检测到 ${meta.comparisonCleanupCount} 组“原句/修改后句子”对照内容，优化时会删除原句并保留修改后内容。`
+          : "未检测到明确标记的“原句/修改后句子”对照内容。";
         setPreview({
           loading: false,
-          html: `<p>${formulaMessage}</p><p>${format ? "同时会整理中文正文的宋体与首行缩进，并保留英文正文不缩进。" : "已关闭基础论文格式整理，仅处理公式修复。"}</p><p>原有正文、表格、图片和样式会尽量保留。</p>`,
+          html: `<p>${formulaMessage}</p><p>${comparisonMessage}</p><p>${format ? "同时会整理中文正文的宋体与首行缩进，并保留英文正文不缩进。" : "已关闭基础论文格式整理，仅处理公式修复。"}</p><p>原有正文、表格、图片和样式会尽量保留。</p>`,
           note: metaNote(meta),
           repairReport: meta.repairReport,
           formatReport: meta.formatReport,
@@ -527,9 +531,9 @@ export default function FerryPage() {
               <h2 id="ferry-release-title">当前版本与能力</h2>
               <span>先确认支持范围，再开始处理文件。</span>
             </div>
-            <div className="ferry-tool-version" aria-label="当前公开版本 v0.17">
+            <div className="ferry-tool-version" aria-label="当前公开版本 v0.18">
               <span>当前公开测试版</span>
-              <strong>v0.17</strong>
+              <strong>v0.18</strong>
               <small>更新于 2026.08.26</small>
             </div>
           </header>
@@ -543,6 +547,7 @@ export default function FerryPage() {
                 <li>常见论文公式转为可编辑 Word 公式</li>
                 <li>AI 双重转义、裸露公式整段识别与典型中文乱码修复</li>
                 <li>Word 公式诊断、残留位置提示与基础论文格式整理</li>
+                <li>明确标记的“原句 / 修改后句子”对照稿清理</li>
                 <li>浏览器本地处理，文件不上传、不留存</li>
               </ul>
             </article>

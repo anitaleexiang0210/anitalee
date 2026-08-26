@@ -41,6 +41,7 @@ export type ConversionMeta = {
   repairedCount: number;
   normalizedFormulaCount?: number;
   plainTextCleanupCount?: number;
+  comparisonCleanupCount?: number;
   formulaResidualCount?: number;
   repairReport?: WordRepairReport;
   formatReport?: WordFormatReport;
@@ -1920,6 +1921,66 @@ function setParagraphText(documentNode: globalThis.Document, paragraph: Element,
   return true;
 }
 
+const ORIGINAL_COMPARISON_PREFIX = /^\s*原(?:句子|段落)\s*(?:\d+)?\s*(?::|：)\s*/;
+const REVISED_COMPARISON_PREFIX = /^\s*修改后(?:句子|段落)\s*(?:\d+)?\s*(?::|：)\s*(?:(?:数据集描述|基线模型描述)补充\s*)?/;
+
+function removeLeadingText(paragraph: Element, length: number): boolean {
+  let remaining = length;
+  const runs = childElements(paragraph).filter((child) => child.localName === "r");
+  for (const run of runs) {
+    for (const child of childElements(run)) {
+      if (child.localName !== "t" || remaining <= 0) continue;
+      const value = child.textContent ?? "";
+      if (remaining >= value.length) {
+        child.textContent = "";
+        remaining -= value.length;
+      } else {
+        child.textContent = value.slice(remaining);
+        remaining = 0;
+      }
+    }
+    if (remaining === 0) break;
+  }
+  if (remaining > 0) return false;
+
+  for (const run of runs) {
+    const hasText = childElements(run).some((child) => child.localName === "t" && (child.textContent ?? ""));
+    const hasOnlyTextFormatting = childElements(run).every((child) => ["rPr", "t"].includes(child.localName));
+    if (!hasText && hasOnlyTextFormatting && run.parentNode === paragraph) paragraph.removeChild(run);
+  }
+  return true;
+}
+
+// Review exports sometimes place an original paragraph directly before its
+// revised paragraph. With explicit labels, keeping the revised copy is safe;
+// unlabeled or non-adjacent paragraphs remain untouched.
+function cleanWordComparisonPairs(documentNode: globalThis.Document): number {
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  const pairs: Array<{ original: Element; revised: Element; prefixLength: number }> = [];
+  for (let index = 0; index < paragraphs.length - 1; index += 1) {
+    const original = paragraphs[index];
+    const revised = paragraphs[index + 1];
+    const originalChildren = childElements(original);
+    const revisedChildren = childElements(revised);
+    if (!originalChildren.every((child) => ["pPr", "r"].includes(child.localName))) continue;
+    if (!revisedChildren.every((child) => ["pPr", "r"].includes(child.localName))) continue;
+    const originalMatch = ORIGINAL_COMPARISON_PREFIX.exec(paragraphSourceText(original));
+    const revisedMatch = REVISED_COMPARISON_PREFIX.exec(paragraphSourceText(revised));
+    if (!originalMatch || !revisedMatch) continue;
+    pairs.push({ original, revised, prefixLength: revisedMatch[0].length });
+    index += 1;
+  }
+
+  let cleanedCount = 0;
+  for (const pair of pairs) {
+    const originalParent = pair.original.parentNode;
+    if (!originalParent || !pair.revised.parentNode) continue;
+    originalParent.removeChild(pair.original);
+    if (removeLeadingText(pair.revised, pair.prefixLength)) cleanedCount += 1;
+  }
+  return cleanedCount;
+}
+
 function repairSimpleMulticolumnRows(documentNode: globalThis.Document): number {
   let repairedCount = 0;
   const rows = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "tr"));
@@ -2133,6 +2194,7 @@ export async function inspectWordOptimization(file: File, options: WordOptimizat
   if (!documentFile) throw new Error("不是可读取的 Word 文档");
   const documentNode = new DOMParser().parseFromString(await documentFile.async("string"), "application/xml");
   const repairReport = inspectWordRepairReport(documentNode);
+  const comparisonCleanupCount = cleanWordComparisonPairs(documentNode);
   const plainTextCleanupCount = cleanWordPlainTextEscapes(documentNode);
   const formatReport = options.formatDocument ? formatWordDocument(documentNode) : emptyWordFormatReport();
   return {
@@ -2141,6 +2203,7 @@ export async function inspectWordOptimization(file: File, options: WordOptimizat
     repairedCount: 0,
     normalizedFormulaCount: 0,
     plainTextCleanupCount,
+    comparisonCleanupCount,
     formulaResidualCount: repairReport.remainingCount,
     repairReport,
     formatReport,
@@ -2155,6 +2218,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
   const xml = await documentFile.async("string");
   const documentNode = new DOMParser().parseFromString(xml, "application/xml");
   const inputReport = inspectWordRepairReport(documentNode);
+  const comparisonCleanupCount = cleanWordComparisonPairs(documentNode);
   cleanWordMarkdownArtifacts(documentNode);
   repairSimpleMulticolumnRows(documentNode);
   const normalizedFunctionCount = normalizeMalformedMathFunctions(documentNode);
@@ -2198,6 +2262,7 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
       repairedCount: 0,
       normalizedFormulaCount: repairedCount + normalizedFunctionCount,
       plainTextCleanupCount,
+      comparisonCleanupCount,
       formulaResidualCount: repairReport.remainingCount,
       repairReport,
       formatReport,
