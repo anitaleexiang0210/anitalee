@@ -1391,61 +1391,127 @@ type WordFormulaCandidate = {
   sourceRun: Element;
   text: string;
   segments: MathSegment[];
+  replaceWholeParagraph: boolean;
 };
 
-const BARE_LATEX_SOURCE = /\\(?:frac|dfrac|tfrac|text|mathrm|mathbf|mathit|mathcal|mathbb|mathscr|operatorname|sqrt|cdot|times|div|pm|mp|ln|log|sum|prod|int|left|right|begin|end|multicolumn)\b|\\%/;
+const BARE_LATEX_COMMAND_NAMES = new Set([
+  ...Object.keys(LATEX_SYMBOLS),
+  ...TEXT_STYLE_COMMANDS,
+  ...FUNCTION_NAMES,
+  "frac", "dfrac", "tfrac", "sqrt", "left", "right", "begin", "end", "multicolumn",
+  "vert", "Vert", "mid", "parallel", "setminus", "quad", "qquad",
+]);
+const GREEK_LATEX_COMMANDS = new Set([
+  "alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "eta", "theta", "vartheta",
+  "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi", "varpi", "rho", "varrho",
+  "sigma", "varsigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega",
+  "Gamma", "Delta", "Theta", "Lambda", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega",
+]);
+const BARE_LATEX_SOURCE = /\\[A-Za-z]+|\\[%{}]/;
 const AI_PLAINTEXT_LABEL = /^\s*Plaintext(?:\s+|$)/i;
 
-// This covers the high-confidence inline fragments frequently produced by AI
-// exports, such as `0.5\\text{ g/L}` and `\\text{Pb}^{2+}`. We only repair
-// self-contained commands here; surrounding prose stays as regular Word text.
-const BARE_TEXT_ATOM = String.raw`\\(?:text|mathrm|mathbf|mathit|mathcal|mathbb|mathscr|operatorname)\{[^{}]*\}(?:_\{[^{}]*\}|_[A-Za-z0-9])?(?:\^\{[^{}]*\}|\^[+\-A-Za-z0-9])?`;
-const BARE_INLINE_LATEX = new RegExp(
-  String.raw`(?:\d+(?:\.\d+)?\s*)?(?:${BARE_TEXT_ATOM}(?:\s*(?:\\(?:cdot|times|div|pm|mp)|[·*/])\s*(?:${BARE_TEXT_ATOM}|[A-Za-z0-9.]+))*|\\%)(?:\s*=\s*[+\-]?\d+(?:\.\d+)?)?`,
-  "g",
-);
+type BareLatexToken = { start: number; end: number; value: string; hasCommand: boolean };
 
-function isBareFormulaParagraph(value: string): boolean {
-  const text = value.trim();
-  if (!text || /[\u3400-\u9fff]/.test(text) || /[。；，、：]/.test(text)) return false;
-  if (!BARE_LATEX_SOURCE.test(text)) return false;
-  return /(?:=|\\(?:frac|dfrac|tfrac|left|sqrt|ln|log))/.test(text);
+function hasBareScriptedAtom(value: string): boolean {
+  return /(?:^|[^A-Za-z])(?:[A-Za-z]|\\[A-Za-z]+)(?:_\{[^{}]+\}|_[A-Za-z0-9])(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])?/.test(value)
+    || /(?:^|[^A-Za-z])(?:[A-Za-z]|\\[A-Za-z]+)(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])(?:_\{[^{}]+\}|_[A-Za-z0-9])?/.test(value);
 }
 
-function splitBareFormulaParagraph(value: string): MathSegment[] {
-  const starts: number[] = [];
-  const equationStart = /(^|\s)(?=(?:\\(?:ln|log)(?:\([^)]*\)|\s+[A-Za-z][A-Za-z0-9_{}]*)|\\(?:frac|dfrac|tfrac)\{[^{}]*\}\{[^{}]*\}|[A-Za-z][A-Za-z0-9_{}]*)\s*=)/g;
-  let match: RegExpExecArray | null;
-  while ((match = equationStart.exec(value))) {
-    starts.push(match.index + match[1].length);
-    if (!match[0].length) equationStart.lastIndex += 1;
+function hasBareFormulaSource(value: string): boolean {
+  return BARE_LATEX_SOURCE.test(value) || hasBareScriptedAtom(value);
+}
+
+function knownBareLatexCommands(value: string): string[] {
+  return Array.from(value.matchAll(/\\([A-Za-z]+)/g), (match) => match[1])
+    .filter((command) => BARE_LATEX_COMMAND_NAMES.has(command));
+}
+
+function tokenizeBareLatex(value: string): BareLatexToken[] {
+  const tokens: BareLatexToken[] = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    while (/\s/.test(value[cursor] ?? "")) cursor += 1;
+    if (cursor >= value.length) break;
+    const start = cursor;
+    let braces = 0;
+    let brackets = 0;
+    let parentheses = 0;
+    while (cursor < value.length) {
+      const character = value[cursor];
+      if (character === "{") braces += 1;
+      if (character === "}") braces = Math.max(0, braces - 1);
+      if (character === "[") brackets += 1;
+      if (character === "]") brackets = Math.max(0, brackets - 1);
+      if (character === "(") parentheses += 1;
+      if (character === ")") parentheses = Math.max(0, parentheses - 1);
+      cursor += 1;
+      if (/\s/.test(value[cursor] ?? "") && braces === 0 && brackets === 0 && parentheses === 0) break;
+    }
+    const tokenValue = value.slice(start, cursor);
+    tokens.push({
+      start,
+      end: cursor,
+      value: tokenValue,
+      hasCommand: knownBareLatexCommands(tokenValue).length > 0 || /\\[%{}]/.test(tokenValue) || hasBareScriptedAtom(tokenValue),
+    });
   }
+  return tokens;
+}
 
-  const uniqueStarts = [...new Set(starts)].filter((start) => start < value.length);
-  if (!uniqueStarts.length) return [{ type: "math", value: value.trim(), display: true }];
+function bareTokenCore(value: string): string {
+  return value
+    .replace(/^["'“”‘’`]+/, "")
+    .replace(/["'“”‘’`,;:.!?。，；：]+$/, "");
+}
 
-  const segments: MathSegment[] = [];
-  if (uniqueStarts[0] > 0) segments.push({ type: "text", value: value.slice(0, uniqueStarts[0]) });
-  uniqueStarts.forEach((start, index) => {
-    const end = uniqueStarts[index + 1] ?? value.length;
-    const formula = value.slice(start, end).trim();
-    if (formula) segments.push({ type: "math", value: formula, display: true });
-    if (index < uniqueStarts.length - 1) segments.push({ type: "text", value: "\n" });
-  });
-  return segments.length ? segments : [{ type: "text", value }];
+function isBareMathToken(token: BareLatexToken): boolean {
+  const core = bareTokenCore(token.value);
+  if (!core) return false;
+  if (token.hasCommand) return true;
+  if (/^[=+\-*/<>·×÷±∓≤≥≠≈|]+$/.test(core)) return true;
+  if (/^[A-Za-z](?:_\{[^{}]+\}|_[A-Za-z0-9])?(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])?$/.test(core)) return true;
+  if (/^[+\-]?\d+(?:\.\d+)?(?:_\{[^{}]+\})?(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])?$/.test(core)) return true;
+  return /[_^]/.test(core) && /^[A-Za-z0-9\\{}()[\],._^+=+\-\s]+$/.test(core);
+}
+
+function isHighConfidenceBareFormula(value: string, tokenCount: number): boolean {
+  const commands = knownBareLatexCommands(value);
+  if (!commands.length && !/\\[%{}]/.test(value) && !hasBareScriptedAtom(value)) return false;
+  if (tokenCount > 1) return true;
+  if (/[_^={}()[\]]/.test(value)) return true;
+  return commands.some((command) => GREEK_LATEX_COMMANDS.has(command) || FUNCTION_NAMES.has(command));
 }
 
 function splitBareInlineLatex(value: string): MathSegment[] {
-  BARE_INLINE_LATEX.lastIndex = 0;
+  const tokens = tokenizeBareLatex(value);
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (!tokens[index].hasCommand) continue;
+    let startIndex = index;
+    let endIndex = index;
+    while (startIndex > 0 && isBareMathToken(tokens[startIndex - 1])) startIndex -= 1;
+    while (endIndex + 1 < tokens.length && isBareMathToken(tokens[endIndex + 1])) endIndex += 1;
+
+    let start = tokens[startIndex].start;
+    let end = tokens[endIndex].end;
+    while (start < end && /["'“”‘’`]/.test(value[start])) start += 1;
+    while (end > start && /["'“”‘’`,;:.!?。，；：]/.test(value[end - 1])) end -= 1;
+    if (start >= end || !isHighConfidenceBareFormula(value.slice(start, end), endIndex - startIndex + 1)) continue;
+
+    const previous = ranges[ranges.length - 1];
+    if (previous && start <= previous.end) previous.end = Math.max(previous.end, end);
+    else ranges.push({ start, end });
+    index = endIndex;
+  }
+
   const segments: MathSegment[] = [];
   let textStart = 0;
-  let match: RegExpExecArray | null;
-  while ((match = BARE_INLINE_LATEX.exec(value))) {
-    const formula = match[0];
-    if (!formula || !BARE_LATEX_SOURCE.test(formula)) continue;
-    if (textStart < match.index) segments.push({ type: "text", value: value.slice(textStart, match.index) });
-    segments.push({ type: "math", value: formula.trim() });
-    textStart = match.index + formula.length;
+  for (const range of ranges) {
+    if (textStart < range.start) segments.push({ type: "text", value: value.slice(textStart, range.start) });
+    const display = value.slice(0, range.start).trim() === "" && value.slice(range.end).trim() === "";
+    segments.push({ type: "math", value: value.slice(range.start, range.end).trim(), display });
+    textStart = range.end;
   }
   if (textStart < value.length) segments.push({ type: "text", value: value.slice(textStart) });
   return segments.length ? segments : [{ type: "text", value }];
@@ -1456,7 +1522,17 @@ function splitWordFormulaSource(value: string): MathSegment[] {
   if (delimited.some((segment) => segment.type === "math")) {
     return delimited.flatMap((segment) => segment.type === "math" ? [segment] : splitBareInlineLatex(segment.value));
   }
-  return isBareFormulaParagraph(value) ? splitBareFormulaParagraph(value) : splitBareInlineLatex(value);
+  return splitBareInlineLatex(value);
+}
+
+function runSourceText(run: Element): string {
+  const parts: string[] = [];
+  for (const child of childElements(run)) {
+    if (child.localName === "t") parts.push(child.textContent ?? "");
+    if (child.localName === "br" || child.localName === "cr") parts.push("\n");
+    if (child.localName === "tab") parts.push("\t");
+  }
+  return parts.join("");
 }
 
 function paragraphSourceText(paragraph: Element): string {
@@ -1487,8 +1563,31 @@ function wordTextFormulaCandidates(documentNode: globalThis.Document): WordFormu
 
     const text = paragraphSourceText(paragraph);
     const segments = splitWordFormulaSource(text);
-    if (!segments.some((segment) => segment.type === "math")) continue;
-    candidates.push({ paragraph, sourceRun: runs[0], text, segments });
+    const paragraphFormulaCount = segments.filter((segment) => segment.type === "math").length;
+    if (!paragraphFormulaCount) continue;
+
+    const runCandidates = runs.flatMap((run) => {
+      const runText = runSourceText(run);
+      const runSegments = splitWordFormulaSource(runText);
+      return runSegments.some((segment) => segment.type === "math")
+        ? [{ paragraph, sourceRun: run, text: runText, segments: runSegments, replaceWholeParagraph: false }]
+        : [];
+    });
+    const runFormulaCount = runCandidates.reduce(
+      (count, candidate) => count + candidate.segments.filter((segment) => segment.type === "math").length,
+      0,
+    );
+    const runResidual = runCandidates.some((candidate) => candidate.segments
+      .some((segment) => segment.type === "text" && hasBareFormulaSource(segment.value)));
+
+    if (runCandidates.length && runFormulaCount === paragraphFormulaCount && !runResidual) {
+      candidates.push(...runCandidates);
+      continue;
+    }
+
+    const sourceRun = runs.reduce((longest, run) =>
+      runSourceText(run).length > runSourceText(longest).length ? run : longest, runs[0]);
+    candidates.push({ paragraph, sourceRun, text, segments, replaceWholeParagraph: true });
   }
 
   return candidates;
@@ -1569,7 +1668,7 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
   for (const candidate of candidates) {
     const count = candidate.segments.filter((segment) => segment.type === "math").length;
     repairableCount += count;
-    candidateCounts.set(candidate.paragraph, count);
+    candidateCounts.set(candidate.paragraph, (candidateCounts.get(candidate.paragraph) ?? 0) + count);
   }
 
   const issues: WordRepairIssue[] = [];
@@ -1595,7 +1694,7 @@ function inspectWordRepairReport(documentNode: globalThis.Document): WordRepairR
 
     const plainText = segments.filter((segment) => segment.type === "text").map((segment) => segment.value).join("");
     const simpleMulticolumn = /^\\{1,2}multicolumn\{\d+\}\{c\s*$/.test(plainText.trim());
-    if (BARE_LATEX_SOURCE.test(plainText) && !simpleMulticolumn) {
+    if (hasBareFormulaSource(plainText) && !simpleMulticolumn) {
       issues.push({
         location,
         excerpt: issueExcerpt(plainText),
@@ -1695,22 +1794,37 @@ function appendCandidateSegments(
   let repairedCount = 0;
   let hasOutput = false;
   const properties = childElements(candidate.paragraph).find((child) => child.localName === "pPr");
-  for (const child of childElements(candidate.paragraph)) {
-    if (child !== properties) candidate.paragraph.removeChild(child);
+  if (candidate.replaceWholeParagraph) {
+    for (const child of childElements(candidate.paragraph)) {
+      if (child !== properties) candidate.paragraph.removeChild(child);
+    }
+  } else {
+    for (const child of childElements(candidate.paragraph)) {
+      if (child === candidate.sourceRun) break;
+      if (child.localName === "r" && (runSourceText(child).trim() || child.getElementsByTagNameNS(MATH_NS, "oMath").length)) {
+        hasOutput = true;
+      }
+      if (child.namespaceURI === MATH_NS && child.localName === "oMath") hasOutput = true;
+    }
   }
+
+  const appendNode = (node: Node) => {
+    if (candidate.replaceWholeParagraph) candidate.paragraph.appendChild(node);
+    else candidate.paragraph.insertBefore(node, candidate.sourceRun);
+  };
 
   for (const segment of candidate.segments) {
     if (segment.type === "text") {
       const chunks = segment.value.split("\n");
       chunks.forEach((chunk, index) => {
         if (chunk) {
-          candidate.paragraph.appendChild(cloneTextRun(documentNode, candidate.sourceRun, chunk));
+          appendNode(cloneTextRun(documentNode, candidate.sourceRun, chunk));
           if (chunk.trim()) hasOutput = true;
         }
         if (index < chunks.length - 1) {
           const breakRun = cloneTextRun(documentNode, candidate.sourceRun, "");
           breakRun.appendChild(documentNode.createElementNS(WORD_NS, "w:br"));
-          candidate.paragraph.appendChild(breakRun);
+          appendNode(breakRun);
           hasOutput = true;
         }
       });
@@ -1721,14 +1835,15 @@ function appendCandidateSegments(
     if (segment.display && hasOutput && isInsideWordTable(candidate.paragraph)) {
       const breakRun = cloneTextRun(documentNode, candidate.sourceRun, "");
       breakRun.appendChild(documentNode.createElementNS(WORD_NS, "w:br"));
-      candidate.paragraph.appendChild(breakRun);
+      appendNode(breakRun);
     }
     const formulaNode = formulaNodes[formulaIndex.value++];
     if (!formulaNode) continue;
-    candidate.paragraph.appendChild(documentNode.importNode(formulaNode, true));
+    appendNode(documentNode.importNode(formulaNode, true));
     repairedCount += 1;
     hasOutput = true;
   }
+  if (!candidate.replaceWholeParagraph) candidate.paragraph.removeChild(candidate.sourceRun);
   return repairedCount;
 }
 

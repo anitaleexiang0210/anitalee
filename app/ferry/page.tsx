@@ -527,10 +527,10 @@ export default function FerryPage() {
               <h2 id="ferry-release-title">当前版本与能力</h2>
               <span>先确认支持范围，再开始处理文件。</span>
             </div>
-            <div className="ferry-tool-version" aria-label="当前公开版本 v0.16">
+            <div className="ferry-tool-version" aria-label="当前公开版本 v0.17">
               <span>当前公开测试版</span>
-              <strong>v0.16</strong>
-              <small>更新于 2026.08.17</small>
+              <strong>v0.17</strong>
+              <small>更新于 2026.08.26</small>
             </div>
           </header>
 
@@ -541,7 +541,7 @@ export default function FerryPage() {
               <ul>
                 <li>Markdown 与 Word 双向转换</li>
                 <li>常见论文公式转为可编辑 Word 公式</li>
-                <li>AI 双重转义、裸露公式源码与典型中文乱码修复</li>
+                <li>AI 双重转义、裸露公式整段识别与典型中文乱码修复</li>
                 <li>Word 公式诊断、残留位置提示与基础论文格式整理</li>
                 <li>浏览器本地处理，文件不上传、不留存</li>
               </ul>
@@ -551,10 +551,10 @@ export default function FerryPage() {
               <p className="ferry-tool-release-state"><span aria-hidden="true" />正在验证</p>
               <h3>后续计划上线</h3>
               <ul>
-                <li>更多复杂矩阵、分段函数和多行公式</li>
                 <li>更多异常 Word 公式对象的识别与修复</li>
                 <li>字号、行距、页边距和标题层级等可选参数</li>
-                <li>常见毕业论文格式模板与更多真实样本回归</li>
+                <li>处理报告复制、示例文件与更清楚的使用说明</li>
+                <li>更多真实样本回归与稳定性改进</li>
               </ul>
             </article>
 
@@ -564,6 +564,7 @@ export default function FerryPage() {
               <ul>
                 <li>旧版 .doc、PDF 及图片公式识别</li>
                 <li>自定义 LaTeX 宏、TikZ 和完整 LaTeX 文档编译</li>
+                <li>复杂矩阵、分段函数和多行对齐公式的完整修复</li>
                 <li>一键套用整篇论文模板或保证复杂版式完全无损</li>
                 <li>恢复已经变成乱码符号、且原文信息丢失的内容</li>
               </ul>
