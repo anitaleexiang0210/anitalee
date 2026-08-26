@@ -349,7 +349,7 @@ export default function FerryPage() {
     <main className="ferry-tool">
       <div className="ferry-tool-shell">
         <header className="ferry-tool-topbar">
-          <a className="ferry-tool-brand" href="/" aria-label="回到大想个人站首页">
+          <a className="ferry-tool-brand" href="/ferry" aria-label="回到文档渡口首页">
             <img className="ferry-tool-brand-mark" src="/ferry-logo.png" alt="文档渡口" />
             <span>文档渡口</span>
           </a>
