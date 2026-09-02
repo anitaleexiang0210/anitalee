@@ -5,7 +5,7 @@ export const profile = {
   tags: ["产品型 FDE", "需求诊断", "AI 协同交付"],
   statement: "把复杂需求听明白，把落地方案做出来",
   introduction:
-    "近 20 年企业产品、交互设计与项目协作经验，覆盖 CRM / SaaS、央企数字化、政务集成与网络安全。擅长听懂未说清的需求，把复杂流程转成方案、原型和交付节点；当前专注企业 AI 产品与解决方案实践。",
+    "具有丰富的企业产品、交互设计与项目协作经验，覆盖 CRM / SaaS、央企数字化、政务集成与网络安全。擅长听懂未说清的需求，把复杂流程转成方案、原型和交付节点；当前专注企业 AI 产品与解决方案实践。",
   target:
     "目前重点寻找企业 AI 产品经理、企业 AI 解决方案与交付岗位，也关注产品型 FDE 及企业内部 AI 应用机会。北京优先，同时欢迎项目合作与产品共创。",
 };
@@ -17,7 +17,7 @@ export const contact = {
 
 export const evidence = [
   {
-    value: "20 年",
+    value: "10+ 年",
     label: "ToB 产品与项目协作",
   },
   {
@@ -143,16 +143,6 @@ export const aiProjects = [
     href: "/career",
     linkLabel: "打开在线版本",
   },
-  {
-    status: "即将开始",
-    title: "NextPiece｜职业拼图",
-    summary:
-      "面向方向尚未确定或经历较复杂的用户，把完整经历、目标职业和真实岗位要求放在一起，识别已有、可迁移、待补和硬门槛四类拼图，并形成少量优先建议。它与职业靶心是两个独立产品。",
-    proof: ["完整经历解析", "方向判断", "四类拼图", "阶段复测"],
-    imageAlt: "NextPiece 职业拼图即将开始产品研发",
-    href: "/NextPiece",
-    linkLabel: "查看产品预告",
-  },
 ];
 
 export const careerPhases = [
@@ -160,17 +150,17 @@ export const careerPhases = [
     period: "2006—2015",
     title: "从软件测试到用户研究与交互设计",
     detail:
-      "在飞图科技、中国数码、悠易互通与安世亚太工作，积累用户访谈、可用性研究、交互设计与售前原型经验。",
+      "积累用户访谈、可用性研究、交互设计与售前原型经验。",
   },
   {
     period: "2015—2023",
     title: "深耕企业 SaaS 与央企数字化产品",
     detail:
-      "先后在销售易、纷享销客、昆仑数智与和创科技工作，覆盖 CRM、协同办公和工程数字化等复杂企业场景。",
+      "先后在国内知名CRM厂商与知名央企，覆盖 CRM、协同办公和工程数字化等复杂企业场景。",
   },
   {
     period: "2023—2025",
-    title: "职业转型与心理咨询训练",
+    title: "职业转型与咨询训练",
     detail:
       "通过个人实践系统训练倾听、澄清和关系建立，并将这些方法迁移到用户访谈和客户沟通。",
   },
@@ -178,7 +168,7 @@ export const careerPhases = [
     period: "2025—现在",
     title: "走进商务、投标、合同与集成交付现场",
     detail:
-      "先后在铜牛信息与国科数安从事商务及项目协同工作，补充企业采购、项目推进、客户沟通与交付约束经验，同时转向企业 AI 产品与解决方案实践。",
+      "补充企业采购、项目推进、客户沟通与交付约束经验，同时转向企业 AI 产品与解决方案实践。",
   },
 ];
 
@@ -192,7 +182,6 @@ export const credentials = [
 export const navigation = [
   { label: "现在", href: "#now" },
   { label: "作品", href: "#work" },
-  { label: "经历", href: "#experience" },
   { label: "关于我", href: "#about" },
   { label: "联系我", href: "#contact" },
 ];

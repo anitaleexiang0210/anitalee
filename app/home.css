@@ -28,7 +28,6 @@
 .home-masthead {
   position: relative;
   z-index: 20;
-  border-bottom: 1px solid var(--home-line);
   background: var(--home-paper);
 }
 
@@ -89,8 +88,8 @@
 }
 
 .home-opening {
-  padding-top: 74px;
-  padding-bottom: 78px;
+  padding-top: 64px;
+  padding-bottom: 68px;
 }
 
 .home-identity {
@@ -183,8 +182,6 @@
 
 .home-now {
   background: var(--home-green-soft);
-  border-top: 1px solid #c6d8d1;
-  border-bottom: 1px solid #c6d8d1;
 }
 
 .home-now-layout {
@@ -243,7 +240,6 @@
 
 .home-now-note {
   padding-left: 28px;
-  border-left: 1px solid #aac2ba;
 }
 
 .home-now-note a {
@@ -294,8 +290,21 @@
 }
 
 .home-section {
-  padding-top: 96px;
-  padding-bottom: 104px;
+  padding-top: 86px;
+  padding-bottom: 94px;
+}
+
+.home-section#work {
+  padding-bottom: 24px;
+}
+
+.home-method,
+.home-story {
+  padding-top: 34px;
+}
+
+.home-story {
+  padding-bottom: 44px;
 }
 
 .home-section-heading {
@@ -333,6 +342,10 @@
 .home-project {
   padding: 44px 0 54px;
   border-bottom: 1px solid var(--home-line);
+}
+
+.home-project:last-child {
+  border-bottom: 0;
 }
 
 .home-project-head {
@@ -553,6 +566,10 @@
   border-bottom: 1px solid var(--home-line);
 }
 
+.home-case:last-child {
+  border-bottom: 0;
+}
+
 .home-case-meta p {
   margin-bottom: 14px;
   color: var(--home-rose);
@@ -679,7 +696,6 @@
 
 .home-credentials {
   padding-top: 26px;
-  border-top: 4px solid var(--home-green);
 }
 
 .home-credentials > p {
@@ -704,8 +720,8 @@
 }
 
 .home-contact {
-  padding-top: 86px;
-  padding-bottom: 28px;
+  padding-top: 56px;
+  padding-bottom: 18px;
   background: var(--home-rose);
   color: var(--home-white);
 }
@@ -758,7 +774,6 @@
   justify-content: space-between;
   gap: 24px;
   padding-top: 22px;
-  border-top: 1px solid rgba(255, 255, 255, 0.4);
   font-size: 12px;
 }
 
@@ -775,8 +790,6 @@
     grid-column: 2;
     padding-top: 24px;
     padding-left: 0;
-    border-top: 1px solid #aac2ba;
-    border-left: 0;
   }
 
   .home-project-layout,
@@ -818,7 +831,7 @@
 
   .home-story-grid {
     grid-template-columns: 1fr;
-    gap: 54px;
+    gap: 44px;
   }
 }
 
@@ -847,8 +860,8 @@
   }
 
   .home-opening {
-    padding-top: 48px;
-    padding-bottom: 54px;
+    padding-top: 38px;
+    padding-bottom: 44px;
   }
 
   .home-identity {
@@ -929,8 +942,8 @@
   }
 
   .home-section {
-    padding-top: 66px;
-    padding-bottom: 72px;
+    padding-top: 56px;
+    padding-bottom: 62px;
   }
 
   .home-section-heading {
@@ -1025,7 +1038,7 @@
   }
 
   .home-contact {
-    padding-top: 64px;
+    padding-top: 42px;
   }
 
   .home-contact h2 {

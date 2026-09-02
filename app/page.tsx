@@ -2,7 +2,6 @@ import {
   aiProjects,
   capabilities,
   careerPhases,
-  cases,
   contact,
   credentials,
   evidence,
@@ -78,7 +77,7 @@ export default function Home() {
           </div>
           <div className="home-now-copy">
             <p>我最近在认真做的事</p>
-            <h2>把过去二十年的产品与企业现场经验，重新放进 AI 时代</h2>
+            <h2>把多年的产品与企业现场经验，重新放进 AI 时代</h2>
             <p>
               先从真实的小问题开始，做出能被使用、能被验证的产品；也把判断、失败和迭代过程公开记录下来。
             </p>
@@ -168,36 +167,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="home-section home-shell" id="experience">
-        <SectionHeading
-          label="代表经历"
-          title="一些真正改变了我工作方式的现场"
-          body="不把所有公司铺成一张长简历，只留下最能说明产品判断、复杂业务与企业交付的几段经历。"
-        />
-
-        <div className="home-case-list">
-          {cases.map((item) => (
-            <article className="home-case" key={`${item.company}-${item.period}`}>
-              <div className="home-case-meta">
-                <p>{item.period}</p>
-                <strong>{item.company}</strong>
-                <span>{item.category}</span>
-              </div>
-              <div className="home-case-main">
-                <h3>{item.title}</h3>
-                <p>{item.summary}</p>
-                <ul aria-label={`${item.company}经历要点`}>
-                  {item.highlights.map((highlight) => (
-                    <li key={highlight}>{highlight}</li>
-                  ))}
-                </ul>
-                <p className="home-case-result">{item.result}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="home-section home-story" id="about">
         <div className="home-shell">
           <SectionHeading
@@ -234,7 +203,7 @@ export default function Home() {
       <footer className="home-contact" id="contact">
         <div className="home-shell home-contact-main">
           <p className="home-contact-label">联系我 / CONTACT</p>
-          <h2>有合适的岗位、项目，或者一个值得一起验证的问题，我们可以聊聊。</h2>
+          <h2>如果你也在做一件认真而有意思的事，欢迎来认识我，聊聊你的想法。</h2>
           <div className="home-contact-links">
             <a href={`mailto:${contact.email}`}>邮件联系 <span aria-hidden="true">↗</span></a>
             <a href={contact.xiaohongshu} target="_blank" rel="noreferrer">
