@@ -69,6 +69,9 @@ export type WordFormatReport = {
   englishRunCount: number;
   chineseParagraphCount: number;
   englishParagraphCount: number;
+  headingCount: number;
+  tableCount: number;
+  graphicCount: number;
 };
 
 export type WordOptimizationOptions = {
@@ -2026,6 +2029,23 @@ function setWordFont(documentNode: globalThis.Document, run: Element, asciiFont:
   fonts.setAttributeNS(WORD_NS, "w:cs", asciiFont);
 }
 
+function setWordRunSize(documentNode: globalThis.Document, run: Element, halfPoints: string): void {
+  const properties = ensureChildElement(documentNode, run, "rPr");
+  const size = ensureChildElement(documentNode, properties, "sz");
+  size.setAttributeNS(WORD_NS, "w:val", halfPoints);
+  const complexSize = ensureChildElement(documentNode, properties, "szCs");
+  complexSize.setAttributeNS(WORD_NS, "w:val", halfPoints);
+}
+
+function setWordParagraphSpacing(documentNode: globalThis.Document, paragraph: Element, before: string, after: string): void {
+  const properties = ensureChildElement(documentNode, paragraph, "pPr");
+  const spacing = ensureChildElement(documentNode, properties, "spacing");
+  spacing.setAttributeNS(WORD_NS, "w:before", before);
+  spacing.setAttributeNS(WORD_NS, "w:after", after);
+  spacing.setAttributeNS(WORD_NS, "w:line", "288");
+  spacing.setAttributeNS(WORD_NS, "w:lineRule", "auto");
+}
+
 function setFirstLineIndent(documentNode: globalThis.Document, paragraph: Element, twips: string): void {
   const properties = ensureChildElement(documentNode, paragraph, "pPr");
   const indent = ensureChildElement(documentNode, properties, "ind");
@@ -2058,8 +2078,25 @@ function isWordHeading(paragraph: Element, text: string): boolean {
     || /^\s*(?:\d+(?:\.\d+)*[\s、.]|摘要\s*$|引言\s*$|结论\s*$|参考文献\s*$)/.test(text);
 }
 
+function recognizedHeadingLevel(paragraph: Element, text: string): number {
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  const style = properties && childElements(properties).find((child) => child.localName === "pStyle");
+  const styleValue = style?.getAttributeNS(WORD_NS, "val") ?? "";
+  const match = styleValue.match(/^Heading([1-3])$/i);
+  if (match) return Number(match[1]);
+  if (text.length > 80) return 0;
+  if (/^第[一二三四五六七八九十百\d]+章\s*\S/.test(text)) return 1;
+  if (/^\d+\.\d+(?:\.\d+)?\s+\S/.test(text)) return text.match(/^\d+\.\d+\./) ? 3 : 2;
+  return 0;
+}
+
 function isInsideWordTable(paragraph: Element): boolean {
   return Boolean(closestWordElement(paragraph.parentElement, "tbl"));
+}
+
+function isWordList(paragraph: Element): boolean {
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  return Boolean(properties && childElements(properties).some((child) => child.localName === "numPr"));
 }
 
 function emptyWordFormatReport(enabled = false): WordFormatReport {
@@ -2070,6 +2107,9 @@ function emptyWordFormatReport(enabled = false): WordFormatReport {
     englishRunCount: 0,
     chineseParagraphCount: 0,
     englishParagraphCount: 0,
+    headingCount: 0,
+    tableCount: 0,
+    graphicCount: 0,
   };
 }
 
@@ -2146,6 +2186,10 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
   let englishRunCount = 0;
   let chineseParagraphCount = 0;
   let englishParagraphCount = 0;
+  let headingCount = 0;
+  const tableCount = documentNode.getElementsByTagNameNS(WORD_NS, "tbl").length;
+  const graphicCount = documentNode.getElementsByTagNameNS(WORD_NS, "drawing").length
+    + documentNode.getElementsByTagNameNS(WORD_NS, "pict").length;
 
   for (const paragraph of paragraphs) {
     const text = paragraphText(paragraph);
@@ -2154,13 +2198,23 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
     const hasLatin = paragraphHasLatinText(paragraph);
     const insideTable = isInsideWordTable(paragraph);
     const heading = isWordHeading(paragraph, text);
-    if (hasCjk && !insideTable && !heading) {
+    const headingLevel = insideTable ? 0 : recognizedHeadingLevel(paragraph, text);
+    if (insideTable || isWordList(paragraph)) continue;
+    if (headingLevel > 0) {
+      headingCount += 1;
+      clearFirstLineIndent(documentNode, paragraph);
+      setWordParagraphSpacing(documentNode, paragraph, "240", "120");
+      const properties = ensureChildElement(documentNode, paragraph, "pPr");
+      ensureChildElement(documentNode, properties, "keepNext");
+    } else if (hasCjk && !heading) {
       chineseParagraphCount += 1;
       setFirstLineIndent(documentNode, paragraph, "420");
-    } else if (!insideTable) {
+      setWordParagraphSpacing(documentNode, paragraph, "0", "0");
+    } else if (!heading) {
       clearFirstLineIndent(documentNode, paragraph);
+      setWordParagraphSpacing(documentNode, paragraph, "0", "0");
     }
-    if (hasLatin && !insideTable && !heading) englishParagraphCount += 1;
+    if (hasLatin && !heading && headingLevel === 0) englishParagraphCount += 1;
 
     const runs = Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "r"));
     for (const run of runs) {
@@ -2171,7 +2225,15 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
       if (!runText) continue;
       const runHasCjk = /[\u3400-\u9fff]/.test(runText);
       const runHasLatin = /[A-Za-z]/.test(runText);
+      if (heading && headingLevel === 0) continue;
       setWordFont(documentNode, run, "Times New Roman", runHasCjk ? "SimSun" : "Times New Roman");
+      if (headingLevel > 0) {
+        const bold = ensureChildElement(documentNode, ensureChildElement(documentNode, run, "rPr"), "b");
+        bold.setAttributeNS(WORD_NS, "w:val", "1");
+      }
+      if (!run.getElementsByTagNameNS(WORD_NS, "vertAlign").length) {
+        setWordRunSize(documentNode, run, headingLevel === 1 ? "32" : headingLevel === 2 ? "28" : headingLevel === 3 ? "26" : "24");
+      }
       fontRunCount += 1;
       if (runHasCjk) chineseRunCount += 1;
       if (runHasLatin) englishRunCount += 1;
@@ -2185,6 +2247,9 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
     englishRunCount,
     chineseParagraphCount,
     englishParagraphCount,
+    headingCount,
+    tableCount,
+    graphicCount,
   };
 }
 

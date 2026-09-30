@@ -13,6 +13,7 @@ import {
 import type { ConversionMeta } from "./converter";
 import type { WordRepairReport } from "./converter";
 import type { WordFormatReport } from "./converter";
+import { hasFerryLicense, saveFerryLicense } from "./license";
 
 type Direction = "md-to-word" | "word-to-md" | "word-optimize";
 type Message = { kind: "success" | "error"; text: string } | null;
@@ -26,6 +27,7 @@ type Preview = {
 } | null;
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const STORE_URL = "https://www.xiaohongshu.com/goods-detail/6a720574cef22500012e26d7?t=1790769098456&xsec_token=ABanroGn9UZRgsTrG03vHEv5AVI9qRuGh4sYlTZ9LbD8M%3D&xsec_source=app_arkselfshare";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -134,11 +136,14 @@ function FormatReport({ report }: { report: WordFormatReport }) {
         <span>基础论文格式整理</span>
         <strong>已写入下载文件</strong>
       </div>
-      <p>中文正文宋体并首行缩进，英文正文不缩进；标题和表格不强行套用正文格式。</p>
+      <p>正文宋体 / Times New Roman、12 磅、1.2 倍行距；规范可识别标题。表格和图形保持原样，下载后请复核。</p>
       <dl>
         <div><dt>中文段落</dt><dd>{report.chineseParagraphCount}</dd></div>
         <div><dt>英文段落</dt><dd>{report.englishParagraphCount}</dd></div>
+        <div><dt>标题</dt><dd>{report.headingCount}</dd></div>
         <div><dt>文字样式</dt><dd>{report.fontRunCount} 处</dd></div>
+        <div><dt>需复核表格</dt><dd>{report.tableCount}</dd></div>
+        <div><dt>需复核图形</dt><dd>{report.graphicCount}</dd></div>
       </dl>
     </section>
   );
@@ -146,6 +151,7 @@ function FormatReport({ report }: { report: WordFormatReport }) {
 
 export default function FerryPage() {
   const fileInput = useRef<HTMLInputElement>(null);
+  const licenseInput = useRef<HTMLInputElement>(null);
   const [direction, setDirection] = useState<Direction>("md-to-word");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -154,7 +160,15 @@ export default function FerryPage() {
   const [preview, setPreview] = useState<Preview>(null);
   const [repairMojibake, setRepairMojibake] = useState(true);
   const [formatDocument, setFormatDocument] = useState(true);
+  const [licenseCode, setLicenseCode] = useState("");
+  const [licensed, setLicensed] = useState(false);
+  const [checkingLicense, setCheckingLicense] = useState(false);
+  const [licenseMessage, setLicenseMessage] = useState("");
   const [pageCount, setPageCount] = useState(1637);
+
+  useEffect(() => {
+    hasFerryLicense().then(setLicensed);
+  }, []);
 
   useEffect(() => {
     const key = "ferry_page_visits";
@@ -230,7 +244,7 @@ export default function FerryPage() {
           : "未检测到明确标记的“原句/修改后句子”对照内容。";
         setPreview({
           loading: false,
-          html: `<p>${formulaMessage}</p><p>${comparisonMessage}</p><p>${format ? "同时会整理中文正文的宋体与首行缩进，并保留英文正文不缩进。" : "已关闭基础论文格式整理，仅处理公式修复。"}</p><p>原有正文、表格、图片和样式会尽量保留。</p>`,
+          html: `<p>${formulaMessage}</p><p>${comparisonMessage}</p><p>${format ? "同时会整理普通正文的字体、字号、缩进与行距，以及可识别标题。" : "已关闭基础格式整理，仅处理公式修复。"}</p><p>表格与图形尽量保留，下载后仍需检查。</p>`,
           note: metaNote(meta),
           repairReport: meta.repairReport,
           formatReport: meta.formatReport,
@@ -309,8 +323,32 @@ export default function FerryPage() {
     if (file && direction === "word-optimize") loadPreview(file, direction, repairMojibake, next);
   }
 
+  async function activateLicense() {
+    setCheckingLicense(true);
+    setLicenseMessage("");
+    try {
+      if (!await saveFerryLicense(licenseCode)) {
+        setLicenseMessage("兑换码无效，请核对完整内容后重试。");
+        return;
+      }
+      setLicensed(true);
+      setLicenseCode("");
+      setLicenseMessage("");
+    } catch {
+      setLicenseMessage("此浏览器未能保存兑换码，请检查是否禁用了本地存储。");
+    } finally {
+      setCheckingLicense(false);
+    }
+  }
+
   async function convert() {
     if (!file || busy) return;
+    if (direction === "word-optimize" && !await hasFerryLicense()) {
+      setLicensed(false);
+      setLicenseMessage("先购买并输入兑换码，即可使用 Word 优化。");
+      licenseInput.current?.focus();
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -364,18 +402,18 @@ export default function FerryPage() {
             <p className="ferry-tool-eyebrow">Local AI document converter & repair</p>
             <h1>
               文档转得好，
-              <span>公式修得好。</span>
+              <span>整理得好。</span>
             </h1>
             <p>
-              不上传云端。完成 Markdown 与 Word 双向转换，也能修复 AI 导出 Word 中裸露或结构异常的常见论文公式，并做基础论文格式整理。
+              不上传云端。免费完成 Markdown 与 Word 双向转换；使用兑换码，一键整理 AI 导出的 Word 正文与常见公式。
             </p>
             <ul className="ferry-tool-promise">
               <li>全程本地处理</li>
-              <li>打开即用</li>
+              <li>基础互转免费</li>
               <li>基础结构与图片打包</li>
               <li>常见论文公式与表格公式</li>
               <li>AI 双重转义与典型中文乱码</li>
-              <li>Word 公式修复与基础格式整理</li>
+              <li>Word 优化凭兑换码</li>
             </ul>
           </div>
 
@@ -470,8 +508,8 @@ export default function FerryPage() {
                       onChange={(event) => toggleFormat(event.target.checked)}
                     />
                     <span>
-                      <strong>基础论文格式整理</strong>
-                      <small>中文正文宋体并首行缩进，英文正文不缩进；标题和表格不强行套用</small>
+                      <strong>通用基础格式整理</strong>
+                      <small>正文宋体 / Times New Roman、12 磅与统一行距；可识别标题，表格和图形不强行重排</small>
                     </span>
                   </label>
                 </>
@@ -487,6 +525,37 @@ export default function FerryPage() {
                     <small>仅处理能够可靠还原的典型乱码，原文已损坏时可能无法恢复</small>
                   </span>
                 </label>
+              )}
+
+              {direction === "word-optimize" && (
+                <div className="ferry-tool-license">
+                  <div className="ferry-tool-license-head">
+                    <div>
+                      <strong>Word 一键基础整理</strong>
+                      <p>{licensed ? "已解锁，可在当前浏览器继续使用。" : "19.9 元购买后，输入兑换码解锁。已有购买者可联系补领兑换码。"}</p>
+                    </div>
+                    {!licensed && <a href={STORE_URL} target="_blank" rel="noopener noreferrer">前往小红书店铺购买</a>}
+                  </div>
+                  {!licensed && (
+                    <div className="ferry-tool-license-form">
+                      <input
+                        ref={licenseInput}
+                        type="text"
+                        value={licenseCode}
+                        onChange={(event) => setLicenseCode(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === "Enter") activateLicense(); }}
+                        placeholder="粘贴购买后收到的兑换码"
+                        aria-label="Word 优化兑换码"
+                        autoComplete="off"
+                      />
+                      <button type="button" onClick={activateLicense} disabled={!licenseCode.trim() || checkingLicense}>
+                        {checkingLicense ? "验证中…" : "兑换"}
+                      </button>
+                    </div>
+                  )}
+                  {licenseMessage && <p className="ferry-tool-license-message" role="status">{licenseMessage}</p>}
+                  <small>兑换码解锁当前增强版，不按次数扣费。请妥善保存，清除浏览器数据后需重新输入。</small>
+                </div>
               )}
 
               {preview && (preview.loading || preview.html) && (
@@ -509,7 +578,7 @@ export default function FerryPage() {
 
               <div className="ferry-tool-actions">
                 <button className="ferry-tool-primary" type="button" onClick={convert} disabled={!file || busy}>
-                  {busy ? "正在处理..." : direction === "word-to-md" ? "转换并下载 Markdown" : direction === "word-optimize" ? "优化并下载 Word" : "转换并下载 Word"}
+                  {busy ? "正在处理..." : direction === "word-to-md" ? "转换并下载 Markdown" : direction === "word-optimize" ? licensed ? "优化并下载 Word" : "兑换码解锁 Word 优化" : "转换并下载 Word"}
                 </button>
                 <p className="ferry-tool-privacy">0 字节上传 · 不保留文件</p>
               </div>
@@ -531,10 +600,10 @@ export default function FerryPage() {
               <h2 id="ferry-release-title">当前版本与能力</h2>
               <span>先确认支持范围，再开始处理文件。</span>
             </div>
-            <div className="ferry-tool-version" aria-label="当前公开版本 v0.18">
-              <span>当前公开测试版</span>
-              <strong>v0.18</strong>
-              <small>更新于 2026.08.26</small>
+            <div className="ferry-tool-version" aria-label="当前版本 v0.19">
+              <span>当前版本</span>
+              <strong>v0.19</strong>
+              <small>更新于 2026.09.30</small>
             </div>
           </header>
 
@@ -546,7 +615,7 @@ export default function FerryPage() {
                 <li>Markdown 与 Word 双向转换</li>
                 <li>常见论文公式转为可编辑 Word 公式</li>
                 <li>AI 双重转义、裸露公式整段识别与典型中文乱码修复</li>
-                <li>Word 公式诊断、残留位置提示与基础论文格式整理</li>
+                <li>付费 Word 优化：公式诊断、残留位置提示与通用基础格式整理</li>
                 <li>明确标记的“原句 / 修改后句子”对照稿清理</li>
                 <li>浏览器本地处理，文件不上传、不留存</li>
               </ul>
@@ -557,7 +626,7 @@ export default function FerryPage() {
               <h3>后续计划上线</h3>
               <ul>
                 <li>更多异常 Word 公式对象的识别与修复</li>
-                <li>字号、行距、页边距和标题层级等可选参数</li>
+                <li>更多标题格式和文档模板参数</li>
                 <li>处理报告复制、示例文件与更清楚的使用说明</li>
                 <li>更多真实样本回归与稳定性改进</li>
               </ul>

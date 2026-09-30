@@ -1474,6 +1474,88 @@ h1 {
   line-height: 1.5;
 }
 
+.ferry-tool-license {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--ferry-line);
+  border-radius: 6px;
+  background: #f8faff;
+}
+
+.ferry-tool-license-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ferry-tool-license-head strong {
+  color: var(--ferry-ink);
+  font-size: 14px;
+}
+
+.ferry-tool-license-head p,
+.ferry-tool-license > small,
+.ferry-tool-license-message {
+  margin: 4px 0 0;
+  color: var(--ferry-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ferry-tool-license-head a {
+  flex: 0 0 auto;
+  color: var(--ferry-green);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.ferry-tool-license-form {
+  display: flex;
+  gap: 8px;
+}
+
+.ferry-tool-license-form input {
+  min-width: 0;
+  min-height: 42px;
+  flex: 1 1 auto;
+  padding: 0 11px;
+  border: 1px solid var(--ferry-line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ferry-ink);
+  font-size: 13px;
+}
+
+.ferry-tool-license-form input:focus {
+  outline: 2px solid var(--ferry-green);
+  outline-offset: 1px;
+}
+
+.ferry-tool-license-form button {
+  min-width: 68px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--ferry-green);
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ferry-tool-license-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ferry-tool-license-message {
+  margin: 0;
+  color: var(--ferry-green-dark);
+}
+
 .ferry-tool-format-report {
   display: grid;
   gap: 8px;
@@ -2087,6 +2169,11 @@ h1 {
 
   .ferry-tool-actions {
     grid-template-columns: 1fr;
+  }
+
+  .ferry-tool-license-head {
+    flex-direction: column;
+    gap: 6px;
   }
 
   .ferry-tool-report-head {
