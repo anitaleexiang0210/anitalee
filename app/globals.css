@@ -1293,7 +1293,7 @@ h1 {
 
 .ferry-tool-switch {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   background: #e9edf5;
@@ -1303,8 +1303,13 @@ h1 {
 }
 
 .ferry-tool-switch button {
-  min-height: 38px;
-  padding: 0 13px;
+  display: flex;
+  min-height: 52px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 13px;
   background: transparent;
   border: 0;
   border-radius: 4px;
@@ -1315,10 +1320,20 @@ h1 {
   transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
+.ferry-tool-switch button small {
+  color: var(--ferry-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .ferry-tool-switch button.active {
   background: #fff;
   box-shadow: 0 2px 9px rgba(42, 57, 91, 0.1);
   color: var(--ferry-green-dark);
+}
+
+.ferry-tool-switch button.active small {
+  color: inherit;
 }
 
 .ferry-tool-card-body {
@@ -2146,8 +2161,12 @@ h1 {
   }
 
   .ferry-tool-switch button {
-    padding: 0 8px;
+    padding: 5px 8px;
     font-size: 12px;
+  }
+
+  .ferry-tool-switch button small {
+    font-size: 9px;
   }
 
   .ferry-tool-card-body {

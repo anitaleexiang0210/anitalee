@@ -16,6 +16,7 @@ import type { WordFormatReport } from "./converter";
 import { hasFerryLicense, saveFerryLicense } from "./license";
 
 type Direction = "md-to-word" | "word-to-md" | "word-optimize";
+type ToolMode = "convert" | "word-optimize";
 type Message = { kind: "success" | "error"; text: string } | null;
 type Preview = {
   loading: boolean;
@@ -35,11 +36,11 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function detectDirection(file: File | null): Direction | null {
+function detectDirection(file: File | null, mode: ToolMode): Direction | null {
   if (!file) return null;
   const name = file.name.toLowerCase();
-  if (name.endsWith(".md") || name.endsWith(".markdown")) return "md-to-word";
-  if (name.endsWith(".docx")) return "word-optimize";
+  if (name.endsWith(".md") || name.endsWith(".markdown")) return mode === "convert" ? "md-to-word" : null;
+  if (name.endsWith(".docx")) return mode === "convert" ? "word-to-md" : "word-optimize";
   return null;
 }
 
@@ -194,7 +195,8 @@ export default function FerryPage() {
     }
   }, []);
 
-  const accept = direction === "md-to-word" ? ".md,.markdown" : ".docx";
+  const mode: ToolMode = direction === "word-optimize" ? "word-optimize" : "convert";
+  const accept = mode === "convert" ? ".md,.markdown,.docx" : ".docx";
   const fileTag = direction === "md-to-word" ? "MD" : "DOCX";
 
   async function loadPreview(
@@ -257,32 +259,32 @@ export default function FerryPage() {
     }
   }
 
-  function validateFile(candidate: File) {
+  function validateFile(candidate: File): Direction | null {
     const name = candidate.name.toLowerCase();
     if (name.endsWith(".doc") && !name.endsWith(".docx")) {
       setMessage({ kind: "error", text: "不支持旧版 .doc 格式。请用 Word 或 WPS 打开后，另存为 .docx 再丢入。" });
-      return false;
+      return null;
     }
-    const detected = detectDirection(candidate);
+    const detected = detectDirection(candidate, mode);
     if (!detected) {
-      setMessage({ kind: "error", text: "请选择 .md、.markdown 或 .docx 文件。" });
-      return false;
+      setMessage({
+        kind: "error",
+        text: mode === "word-optimize" ? "Word 优化支持 .docx 文件；如需互转，请切换到“Markdown ↔ Word”。" : "请选择 .md、.markdown 或 .docx 文件。",
+      });
+      return null;
     }
     if (candidate.size > MAX_FILE_SIZE) {
       setMessage({ kind: "error", text: "文件不能超过 25 MB。" });
-      return false;
+      return null;
     }
-    if (direction === "md-to-word" && detected === "word-optimize") setDirection("word-optimize");
-    if (direction !== "md-to-word" && detected === "md-to-word") setDirection("md-to-word");
-    return true;
+    return detected;
   }
 
   function chooseFile(candidate?: File) {
-    if (!candidate || !validateFile(candidate)) return;
-    const detected = detectDirection(candidate);
-    const selectedDirection = detected === "md-to-word"
-      ? "md-to-word"
-      : direction === "md-to-word" ? "word-optimize" : direction;
+    if (!candidate) return;
+    const selectedDirection = validateFile(candidate);
+    if (!selectedDirection) return;
+    setDirection(selectedDirection);
     setFile(candidate);
     setMessage(null);
     loadPreview(candidate, selectedDirection);
@@ -306,8 +308,8 @@ export default function FerryPage() {
     }
   }
 
-  function switchDirection(next: Direction) {
-    setDirection(next);
+  function switchDirection(next: ToolMode) {
+    setDirection(next === "word-optimize" ? "word-optimize" : "md-to-word");
     setFile(null);
     setPreview(null);
     setMessage(null);
@@ -399,41 +401,34 @@ export default function FerryPage() {
 
         <section className="ferry-tool-hero">
           <div className="ferry-tool-copy">
-            <p className="ferry-tool-eyebrow">Local AI document converter & repair</p>
+            <p className="ferry-tool-eyebrow">AI 文档交付的最后一步</p>
             <h1>
-              文档转得好，
-              <span>整理得好。</span>
+              从 AI 生成，
+              <span>到文档可交付。</span>
             </h1>
             <p>
-              不上传云端。免费完成 Markdown 与 Word 双向转换；使用兑换码，一键整理 AI 导出的 Word 正文与常见公式。
+              文档渡口帮你收好最后一步：Markdown 与 Word 免费互转；Word 优化增强版一键修复常见异常公式、整理通用基础格式，减少反复手工调整。AI 生成或其他来源的 Word 都能用。
             </p>
             <ul className="ferry-tool-promise">
               <li>全程本地处理</li>
-              <li>基础互转免费</li>
-              <li>基础结构与图片打包</li>
-              <li>常见论文公式与表格公式</li>
-              <li>AI 双重转义与典型中文乱码</li>
-              <li>Word 优化凭兑换码</li>
+              <li>Markdown ↔ Word 免费互转，自动识别方向</li>
+              <li>Word 优化增强版：19.9 元兑换码解锁</li>
+              <li>异常公式修复 + 通用基础格式整理</li>
+              <li>处理结果提示复核位置</li>
             </ul>
           </div>
 
           <section className="ferry-tool-card" aria-label="文档转换工具">
             <div className="ferry-tool-card-head">
-              <span className="ferry-tool-step">选择处理方式</span>
-              <div className="ferry-tool-switch" aria-label="转换方向">
+              <span className="ferry-tool-step">选择功能</span>
+              <div className="ferry-tool-switch" role="group" aria-label="选择处理功能">
                 <button
-                  className={direction === "md-to-word" ? "active" : ""}
-                  onClick={() => switchDirection("md-to-word")}
+                  className={mode === "convert" ? "active" : ""}
+                  onClick={() => switchDirection("convert")}
                   type="button"
                 >
-                  MD → Word
-                </button>
-                <button
-                  className={direction === "word-to-md" ? "active" : ""}
-                  onClick={() => switchDirection("word-to-md")}
-                  type="button"
-                >
-                  Word → MD
+                  <span>Markdown ↔ Word</span>
+                  <small>免费 · 自动识别方向</small>
                 </button>
                 <button
                   className={direction === "word-optimize" ? "active" : ""}
@@ -441,6 +436,7 @@ export default function FerryPage() {
                   type="button"
                 >
                   Word 优化
+                  <small>增强版 · 19.9 元</small>
                 </button>
               </div>
             </div>
@@ -474,7 +470,7 @@ export default function FerryPage() {
                     <div className="ferry-tool-file-meta">
                       <p className="ferry-tool-file-name">{file.name}</p>
                       <p className="ferry-tool-file-size">
-                        {formatBytes(file.size)} · {direction === "word-to-md" ? "将输出 Markdown .md" : direction === "word-optimize" ? "将输出优化后的 Word .docx" : "将输出 Word .docx"}
+                        {formatBytes(file.size)} · {direction === "word-to-md" ? "自动转为 Markdown .md" : direction === "word-optimize" ? "将输出优化后的 Word .docx" : "自动转为 Word .docx"}
                       </p>
                     </div>
                     <span className="ferry-tool-change">更换文件</span>
@@ -483,10 +479,10 @@ export default function FerryPage() {
                   <div>
                     <span className="ferry-tool-file-glyph" aria-hidden="true">{fileTag}</span>
                     <p className="ferry-tool-drop-title">
-                      {direction === "md-to-word" ? "拖入 .md 文件" : direction === "word-optimize" ? "拖入需要优化的 .docx" : "拖入 .docx 文件"}
+                      {mode === "convert" ? "拖入 .md 或 .docx 文件" : "拖入需要优化的 .docx"}
                     </p>
                     <p className="ferry-tool-drop-note">
-                      {direction === "md-to-word" ? "支持 .md、.markdown" : "支持 .docx"} · 最大 25 MB
+                      {mode === "convert" ? "自动识别方向：.md → Word · .docx → Markdown" : "修复常见异常公式、整理基础格式；不限 Word 来源"} · 最大 25 MB
                     </p>
                   </div>
                 )}
@@ -497,7 +493,7 @@ export default function FerryPage() {
                   <div className="ferry-tool-repair ferry-tool-repair-static">
                     <span className="ferry-tool-repair-icon" aria-hidden="true">✓</span>
                     <span>
-                      <strong>修复 Word 中异常公式</strong>
+                      <strong>修复 Word 中的异常公式</strong>
                       <small>支持裸露源码和旧版函数结构异常；复杂公式仍需下载后检查</small>
                     </span>
                   </div>
@@ -508,7 +504,7 @@ export default function FerryPage() {
                       onChange={(event) => toggleFormat(event.target.checked)}
                     />
                     <span>
-                      <strong>通用基础格式整理</strong>
+                      <strong>一键整理通用基础格式</strong>
                       <small>正文宋体 / Times New Roman、12 磅与统一行距；可识别标题，表格和图形不强行重排</small>
                     </span>
                   </label>
@@ -531,8 +527,8 @@ export default function FerryPage() {
                 <div className="ferry-tool-license">
                   <div className="ferry-tool-license-head">
                     <div>
-                      <strong>Word 一键基础整理</strong>
-                      <p>{licensed ? "已解锁，当前浏览器会记住兑换状态。" : "19.9 元购买后输入兑换码；此前购买 9.9 元版本的用户可联系领取升级码。"}</p>
+                      <strong>Word 优化增强版</strong>
+                      <p>{licensed ? "已解锁，公式修复与基础格式整理均可使用。" : "19.9 元购买后输入兑换码，解锁完整 Word 优化：异常公式修复 + 通用基础格式整理。"}</p>
                     </div>
                     {!licensed && <a href={STORE_URL} target="_blank" rel="noopener noreferrer">前往小红书店铺购买</a>}
                   </div>
@@ -554,7 +550,7 @@ export default function FerryPage() {
                     </div>
                   )}
                   {licenseMessage && <p className="ferry-tool-license-message" role="status">{licenseMessage}</p>}
-                  <small>每单一枚，请保存原码。换设备或清除站点数据后，重新输入原码即可；遗失不补发新码。</small>
+                  <small>每单一枚，请保存原码。换设备或清除站点数据后，重新输入原码即可；个人遗失不重新签发。</small>
                 </div>
               )}
 
@@ -578,7 +574,7 @@ export default function FerryPage() {
 
               <div className="ferry-tool-actions">
                 <button className="ferry-tool-primary" type="button" onClick={convert} disabled={!file || busy}>
-                  {busy ? "正在处理..." : direction === "word-to-md" ? "转换并下载 Markdown" : direction === "word-optimize" ? licensed ? "优化并下载 Word" : "兑换码解锁 Word 优化" : "转换并下载 Word"}
+                  {busy ? "正在处理..." : direction === "word-to-md" ? "转换并下载 Markdown" : direction === "word-optimize" ? licensed ? "优化并下载 Word" : "兑换码解锁完整 Word 优化" : "转换并下载 Word"}
                 </button>
                 <p className="ferry-tool-privacy">0 字节上传 · 不保留文件</p>
               </div>
@@ -597,26 +593,26 @@ export default function FerryPage() {
           <header className="ferry-tool-release-head">
             <div>
               <p>PRODUCT STATUS</p>
-              <h2 id="ferry-release-title">当前版本与能力</h2>
-              <span>先确认支持范围，再开始处理文件。</span>
+              <h2 id="ferry-release-title">免费互转与 Word 优化</h2>
+              <span>互转按文件类型自动识别方向；Word 优化增强版由兑换码解锁。</span>
             </div>
-            <div className="ferry-tool-version" aria-label="当前版本 v0.19">
+            <div className="ferry-tool-version" aria-label="当前版本 v0.20">
               <span>当前版本</span>
-              <strong>v0.19</strong>
+              <strong>v0.20</strong>
               <small>更新于 2026.09.30</small>
             </div>
           </header>
 
           <div className="ferry-tool-release-grid">
             <article className="available">
-              <p className="ferry-tool-release-state"><span aria-hidden="true" />已上线</p>
-              <h3>现在可以使用</h3>
+              <p className="ferry-tool-release-state"><span aria-hidden="true" />免费 + 19.9 元兑换码</p>
+              <h3>互转免费，Word 优化解锁增强版</h3>
               <ul>
-                <li>Markdown 与 Word 双向转换</li>
-                <li>常见论文公式转为可编辑 Word 公式</li>
-                <li>AI 双重转义、裸露公式整段识别与典型中文乱码修复</li>
-                <li>付费 Word 优化：公式诊断、残留位置提示与通用基础格式整理</li>
-                <li>明确标记的“原句 / 修改后句子”对照稿清理</li>
+                <li>免费互转：Markdown ↔ Word，按文件格式自动识别方向</li>
+                <li>免费转换：常见论文公式转为可编辑 Word 公式，并处理典型转义与中文乱码</li>
+                <li>Word 优化增强版：修复异常公式、提供诊断与需复核位置提示</li>
+                <li>一键整理通用正文格式与可识别标题；清理明确标记的“原句 / 修改后句子”对照稿</li>
+                <li>AI 生成或其他来源的 .docx 均可使用；当前不按文档次数扣费</li>
                 <li>浏览器本地处理，文件不上传、不留存</li>
               </ul>
             </article>
@@ -646,7 +642,7 @@ export default function FerryPage() {
           </div>
 
           <p className="ferry-tool-release-note">
-            当前版本优先保证支持范围内的结果可编辑、可检查。复杂公式和正式论文仍建议下载后人工抽查。
+            Word 优化会尽量保留原有表格与图形，不保证复杂版式完全不变。复杂公式和正式论文请下载后人工抽查。
           </p>
         </section>
 
