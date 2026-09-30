@@ -532,7 +532,7 @@ export default function FerryPage() {
                   <div className="ferry-tool-license-head">
                     <div>
                       <strong>Word 一键基础整理</strong>
-                      <p>{licensed ? "已解锁，可在当前浏览器继续使用。" : "19.9 元购买后，输入兑换码解锁。已有购买者可联系补领兑换码。"}</p>
+                      <p>{licensed ? "已解锁，当前浏览器会记住兑换状态。" : "19.9 元购买后输入兑换码；此前购买 9.9 元版本的用户可联系领取升级码。"}</p>
                     </div>
                     {!licensed && <a href={STORE_URL} target="_blank" rel="noopener noreferrer">前往小红书店铺购买</a>}
                   </div>
@@ -554,7 +554,7 @@ export default function FerryPage() {
                     </div>
                   )}
                   {licenseMessage && <p className="ferry-tool-license-message" role="status">{licenseMessage}</p>}
-                  <small>兑换码解锁当前增强版，不按次数扣费。请妥善保存，清除浏览器数据后需重新输入。</small>
+                  <small>每单一枚，请保存原码。换设备或清除站点数据后，重新输入原码即可；遗失不补发新码。</small>
                 </div>
               )}
 
