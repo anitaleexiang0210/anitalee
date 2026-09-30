@@ -550,7 +550,7 @@ export default function FerryPage() {
                     </div>
                   )}
                   {licenseMessage && <p className="ferry-tool-license-message" role="status">{licenseMessage}</p>}
-                  <small>每单一枚，请保存原码。换设备或清除站点数据后，重新输入原码即可；个人遗失不重新签发。</small>
+                  <small>每单一枚，请保存原码。原码不绑定设备，持有者都可能激活，请勿转发；换设备后可重新输入，个人遗失不重新签发。</small>
                 </div>
               )}
 
