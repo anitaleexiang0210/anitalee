@@ -401,10 +401,10 @@ export default function FerryPage() {
 
         <section className="ferry-tool-hero">
           <div className="ferry-tool-copy">
-            <p className="ferry-tool-eyebrow">AI 文档交付的最后一步</p>
+            <p className="ferry-tool-eyebrow">文档交付前的最后一步</p>
             <h1>
-              从 AI 生成，
-              <span>到文档可交付。</span>
+              Word排版格式美化，
+              <span>助你快速成品</span>
             </h1>
             <p>
               文档渡口帮你收好最后一步：Markdown 与 Word 免费互转；Word 优化增强版一键修复常见异常公式、整理通用基础格式，减少反复手工调整。AI 生成或其他来源的 Word 都能用。
