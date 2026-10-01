@@ -402,10 +402,7 @@ export default function FerryPage() {
         <section className="ferry-tool-hero">
           <div className="ferry-tool-copy">
             <p className="ferry-tool-eyebrow">文档交付前的最后一步</p>
-            <h1>
-              Word排版格式美化，
-              <span>助你快速成品</span>
-            </h1>
+            <h1>Word排版格式一键快速<span>美化</span></h1>
             <p>
               文档渡口帮你收好最后一步：Markdown 与 Word 免费互转；Word 优化增强版一键修复常见异常公式、整理通用基础格式，减少反复手工调整。AI 生成或其他来源的 Word 都能用。
             </p>
@@ -596,10 +593,10 @@ export default function FerryPage() {
               <h2 id="ferry-release-title">免费互转与 Word 优化</h2>
               <span>互转按文件类型自动识别方向；Word 优化增强版由兑换码解锁。</span>
             </div>
-            <div className="ferry-tool-version" aria-label="当前版本 v0.20">
+            <div className="ferry-tool-version" aria-label="当前版本 V1.0">
               <span>当前版本</span>
-              <strong>v0.20</strong>
-              <small>更新于 2026.09.30</small>
+              <strong>V1.0</strong>
+              <small>更新于 2026.10.01</small>
             </div>
           </header>
 
