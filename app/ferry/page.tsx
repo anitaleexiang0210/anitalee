@@ -132,16 +132,16 @@ function RepairReport({ report, phase }: { report: WordRepairReport; phase: "ins
 function FormatReport({ report }: { report: WordFormatReport }) {
   if (!report.enabled) return null;
   return (
-    <section className="ferry-tool-format-report" aria-label="基础论文格式整理结果">
+    <section className="ferry-tool-format-report" aria-label="通用正文格式整理结果">
       <div>
-        <span>基础论文格式整理</span>
+        <span>通用正文格式整理</span>
         <strong>已写入下载文件</strong>
       </div>
-      <p>正文宋体 / Times New Roman、12 磅、1.2 倍行距；规范可识别标题。表格和图形保持原样，下载后请复核。</p>
+      <p>补齐缺失的正文字体、字号与行距，保留已有设置；识别部分标题并减少孤行。封面、表单、表格和图形不强行重排，下载后请复核。</p>
       <dl>
-        <div><dt>中文段落</dt><dd>{report.chineseParagraphCount}</dd></div>
-        <div><dt>英文段落</dt><dd>{report.englishParagraphCount}</dd></div>
-        <div><dt>标题</dt><dd>{report.headingCount}</dd></div>
+        <div><dt>已整理中文段落</dt><dd>{report.chineseParagraphCount}</dd></div>
+        <div><dt>已整理英文段落</dt><dd>{report.englishParagraphCount}</dd></div>
+        <div><dt>识别标题</dt><dd>{report.headingCount}</dd></div>
         <div><dt>文字样式</dt><dd>{report.fontRunCount} 处</dd></div>
         <div><dt>需复核表格</dt><dd>{report.tableCount}</dd></div>
         <div><dt>需复核图形</dt><dd>{report.graphicCount}</dd></div>
@@ -502,7 +502,7 @@ export default function FerryPage() {
                     />
                     <span>
                       <strong>一键整理通用基础格式</strong>
-                      <small>正文宋体 / Times New Roman、12 磅与统一行距；可识别标题，表格和图形不强行重排</small>
+                      <small>补齐缺失的正文格式，保留已有排版；保护封面、表单、表格和图形</small>
                     </span>
                   </label>
                 </>
@@ -593,10 +593,10 @@ export default function FerryPage() {
               <h2 id="ferry-release-title">免费互转与 Word 优化</h2>
               <span>互转按文件类型自动识别方向；Word 优化增强版由兑换码解锁。</span>
             </div>
-            <div className="ferry-tool-version" aria-label="当前版本 V1.0">
+            <div className="ferry-tool-version" aria-label="当前版本 V1.1">
               <span>当前版本</span>
-              <strong>V1.0</strong>
-              <small>更新于 2026.10.01</small>
+              <strong>V1.1</strong>
+              <small>更新于 2026.10.03</small>
             </div>
           </header>
 
@@ -608,7 +608,7 @@ export default function FerryPage() {
                 <li>免费互转：Markdown ↔ Word，按文件格式自动识别方向</li>
                 <li>免费转换：常见论文公式转为可编辑 Word 公式，并处理典型转义与中文乱码</li>
                 <li>Word 优化增强版：修复异常公式、提供诊断与需复核位置提示</li>
-                <li>一键整理通用正文格式与可识别标题；清理明确标记的“原句 / 修改后句子”对照稿</li>
+                <li>一键补齐缺失的正文格式，保留已有设置并保护固定版式；清理明确标记的“原句 / 修改后句子”对照稿</li>
                 <li>AI 生成或其他来源的 .docx 均可使用；当前不按文档次数扣费</li>
                 <li>浏览器本地处理，文件不上传、不留存</li>
               </ul>
@@ -639,7 +639,7 @@ export default function FerryPage() {
           </div>
 
           <p className="ferry-tool-release-note">
-            Word 优化会尽量保留原有表格与图形，不保证复杂版式完全不变。复杂公式和正式论文请下载后人工抽查。
+            Word 优化会尽量保留封面、表单、表格与图形，不保证复杂版式完全不变。投标文件、复杂公式和正式论文请下载后人工复核。
           </p>
         </section>
 

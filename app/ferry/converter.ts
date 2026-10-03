@@ -1417,8 +1417,8 @@ const AI_PLAINTEXT_LABEL = /^\s*Plaintext(?:\s+|$)/i;
 type BareLatexToken = { start: number; end: number; value: string; hasCommand: boolean };
 
 function hasBareScriptedAtom(value: string): boolean {
-  return /(?:^|[^A-Za-z])(?:[A-Za-z]|\\[A-Za-z]+)(?:_\{[^{}]+\}|_[A-Za-z0-9])(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])?/.test(value)
-    || /(?:^|[^A-Za-z])(?:[A-Za-z]|\\[A-Za-z]+)(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])(?:_\{[^{}]+\}|_[A-Za-z0-9])?/.test(value);
+  return /(?:^|[^A-Za-z0-9_])(?:[A-Za-z]|\\[A-Za-z]+)(?:_\{[^{}]+\}|_[A-Za-z0-9])(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])?(?![A-Za-z0-9_])/.test(value)
+    || /(?:^|[^A-Za-z0-9_])(?:[A-Za-z]|\\[A-Za-z]+)(?:\^\{[^{}]+\}|\^[+\-A-Za-z0-9])(?:_\{[^{}]+\}|_[A-Za-z0-9])?(?![A-Za-z0-9_])/.test(value);
 }
 
 function hasBareFormulaSource(value: string): boolean {
@@ -2020,46 +2020,52 @@ function ensureChildElement(documentNode: globalThis.Document, parent: Element, 
   return created;
 }
 
-function setWordFont(documentNode: globalThis.Document, run: Element, asciiFont: string, eastAsiaFont = asciiFont): void {
+function setWordFont(documentNode: globalThis.Document, run: Element, asciiFont: string, eastAsiaFont = asciiFont): boolean {
   const properties = ensureChildElement(documentNode, run, "rPr");
   const fonts = ensureChildElement(documentNode, properties, "rFonts");
-  fonts.setAttributeNS(WORD_NS, "w:ascii", asciiFont);
-  fonts.setAttributeNS(WORD_NS, "w:hAnsi", asciiFont);
-  fonts.setAttributeNS(WORD_NS, "w:eastAsia", eastAsiaFont);
-  fonts.setAttributeNS(WORD_NS, "w:cs", asciiFont);
+  let changed = false;
+  for (const name of ["ascii", "hAnsi"]) {
+    if (fonts.hasAttributeNS(WORD_NS, name)) continue;
+    fonts.setAttributeNS(WORD_NS, `w:${name}`, asciiFont);
+    changed = true;
+  }
+  const currentEastAsia = fonts.getAttributeNS(WORD_NS, "eastAsia");
+  if (!currentEastAsia || /^(?:Times New Roman|Arial|Calibri)$/i.test(currentEastAsia)) {
+    if (currentEastAsia !== eastAsiaFont) {
+      fonts.setAttributeNS(WORD_NS, "w:eastAsia", eastAsiaFont);
+      changed = true;
+    }
+  }
+  return changed;
 }
 
-function setWordRunSize(documentNode: globalThis.Document, run: Element, halfPoints: string): void {
+function setWordRunSize(documentNode: globalThis.Document, run: Element, halfPoints: string): boolean {
   const properties = ensureChildElement(documentNode, run, "rPr");
-  const size = ensureChildElement(documentNode, properties, "sz");
-  size.setAttributeNS(WORD_NS, "w:val", halfPoints);
-  const complexSize = ensureChildElement(documentNode, properties, "szCs");
-  complexSize.setAttributeNS(WORD_NS, "w:val", halfPoints);
+  if (childElements(properties).some((child) => child.localName === "sz")) return false;
+  ensureChildElement(documentNode, properties, "sz").setAttributeNS(WORD_NS, "w:val", halfPoints);
+  if (!childElements(properties).some((child) => child.localName === "szCs")) {
+    ensureChildElement(documentNode, properties, "szCs").setAttributeNS(WORD_NS, "w:val", halfPoints);
+  }
+  return true;
 }
 
-function setWordParagraphSpacing(documentNode: globalThis.Document, paragraph: Element, before: string, after: string): void {
+function setWordParagraphSpacing(documentNode: globalThis.Document, paragraph: Element, before: string, after: string): boolean {
   const properties = ensureChildElement(documentNode, paragraph, "pPr");
+  if (childElements(properties).some((child) => child.localName === "spacing")) return false;
   const spacing = ensureChildElement(documentNode, properties, "spacing");
-  spacing.setAttributeNS(WORD_NS, "w:before", before);
-  spacing.setAttributeNS(WORD_NS, "w:after", after);
-  spacing.setAttributeNS(WORD_NS, "w:line", "288");
-  spacing.setAttributeNS(WORD_NS, "w:lineRule", "auto");
+  for (const [name, value] of [["before", before], ["after", after], ["line", "288"], ["lineRule", "auto"]]) {
+    spacing.setAttributeNS(WORD_NS, `w:${name}`, value);
+  }
+  return true;
 }
 
-function setFirstLineIndent(documentNode: globalThis.Document, paragraph: Element, twips: string): void {
+function setFirstLineIndent(documentNode: globalThis.Document, paragraph: Element, twips: string): boolean {
   const properties = ensureChildElement(documentNode, paragraph, "pPr");
+  if (childElements(properties).some((child) => child.localName === "spacing")) return false;
   const indent = ensureChildElement(documentNode, properties, "ind");
+  if (["firstLine", "firstLineChars", "hanging", "hangingChars"].some((name) => indent.hasAttributeNS(WORD_NS, name))) return false;
   indent.setAttributeNS(WORD_NS, "w:firstLine", twips);
-  indent.removeAttributeNS(WORD_NS, "w:hanging");
-}
-
-function clearFirstLineIndent(documentNode: globalThis.Document, paragraph: Element): void {
-  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
-  if (!properties) return;
-  const indent = childElements(properties).find((child) => child.localName === "ind");
-  if (!indent) return;
-  indent.removeAttributeNS(WORD_NS, "w:firstLine");
-  indent.removeAttributeNS(WORD_NS, "w:hanging");
+  return true;
 }
 
 function paragraphHasCjkText(paragraph: Element): boolean {
@@ -2070,24 +2076,82 @@ function paragraphHasLatinText(paragraph: Element): boolean {
   return /[A-Za-z]/.test(paragraphText(paragraph));
 }
 
-function isWordHeading(paragraph: Element, text: string): boolean {
+function paragraphStyleId(paragraph: Element): string {
   const properties = childElements(paragraph).find((child) => child.localName === "pPr");
-  const style = properties && childElements(properties).find((child) => child.localName === "pStyle");
-  const styleValue = style?.getAttributeNS(WORD_NS, "val") ?? "";
-  return styleValue.toLowerCase().includes("heading")
+  return childElements(properties ?? paragraph).find((child) => child.localName === "pStyle")
+    ?.getAttributeNS(WORD_NS, "val") ?? "";
+}
+
+function paragraphAlignment(paragraph: Element): string {
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  return childElements(properties ?? paragraph).find((child) => child.localName === "jc")
+    ?.getAttributeNS(WORD_NS, "val") ?? "";
+}
+
+function isWordHeading(paragraph: Element, text: string): boolean {
+  return paragraphStyleId(paragraph).toLowerCase().includes("heading")
     || /^\s*(?:\d+(?:\.\d+)*[\s、.]|摘要\s*$|引言\s*$|结论\s*$|参考文献\s*$)/.test(text);
 }
 
 function recognizedHeadingLevel(paragraph: Element, text: string): number {
   const properties = childElements(paragraph).find((child) => child.localName === "pPr");
-  const style = properties && childElements(properties).find((child) => child.localName === "pStyle");
-  const styleValue = style?.getAttributeNS(WORD_NS, "val") ?? "";
-  const match = styleValue.match(/^Heading([1-3])$/i);
+  const outline = properties && childElements(properties).find((child) => child.localName === "outlineLvl");
+  const outlineLevel = Number(outline?.getAttributeNS(WORD_NS, "val"));
+  if (outline && Number.isInteger(outlineLevel) && outlineLevel >= 0 && outlineLevel <= 2) return outlineLevel + 1;
+  const match = paragraphStyleId(paragraph).match(/^Heading([1-3])$/i);
   if (match) return Number(match[1]);
   if (text.length > 80) return 0;
   if (/^第[一二三四五六七八九十百\d]+章\s*\S/.test(text)) return 1;
   if (/^\d+\.\d+(?:\.\d+)?\s+\S/.test(text)) return text.match(/^\d+\.\d+\./) ? 3 : 2;
+  if (text.length > 45 || /[。；：！？:]/.test(text) || /^[（(]\d+[）)]/.test(text)) return 0;
+  const runs = childElements(paragraph).filter((child) => child.localName === "r"
+    && childElements(child).some((node) => node.localName === "t" && node.textContent?.trim()));
+  if (!runs.length) return 0;
+  const visiblyBold = runs.every((run) => {
+    const properties = childElements(run).find((child) => child.localName === "rPr");
+    const bold = properties && childElements(properties).find((child) => child.localName === "b");
+    return bold && !["0", "false"].includes(bold.getAttributeNS(WORD_NS, "val") ?? "1");
+  });
+  const sizes = runs.map((run) => {
+    const properties = childElements(run).find((child) => child.localName === "rPr");
+    const size = properties && childElements(properties).find((child) => child.localName === "sz");
+    return Number(size?.getAttributeNS(WORD_NS, "val") ?? 0);
+  });
+  if (visiblyBold && sizes.some((size) => size >= 28)) return 1;
   return 0;
+}
+
+function isProtectedWordParagraph(paragraph: Element, text: string, normalStyleId: string): boolean {
+  if (!text.trim()) return true;
+  if (isInsideWordTable(paragraph) || isWordList(paragraph)) return true;
+  if (/^\s*(?:注|说明)[:：]/.test(text)) return true;
+  const properties = childElements(paragraph).find((child) => child.localName === "pPr");
+  const indent = properties && childElements(properties).find((child) => child.localName === "ind");
+  const hasFirstLineIndent = indent && ["firstLine", "firstLineChars", "hanging", "hangingChars"]
+    .some((name) => indent.hasAttributeNS(WORD_NS, name));
+  if (hasFirstLineIndent && properties && childElements(properties).some((child) => child.localName === "spacing")) return true;
+  if (["center", "right", "end"].includes(paragraphAlignment(paragraph))) return true;
+  const styleId = paragraphStyleId(paragraph);
+  if (styleId && styleId !== normalStyleId && !/^Heading[1-6]$/i.test(styleId)) return true;
+  if (text.length < 80 && (/[:：]\s*$/.test(text) || /^.{1,16}[:：]\s*\S/.test(text))) return true;
+  if (paragraph.getElementsByTagNameNS(WORD_NS, "tab").length
+    || paragraph.getElementsByTagNameNS(WORD_NS, "fldChar").length
+    || paragraph.getElementsByTagNameNS(WORD_NS, "drawing").length
+    || paragraph.getElementsByTagNameNS(WORD_NS, "pict").length) return true;
+  return Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "br")).some((breakNode) =>
+    ["page", "column"].includes(breakNode.getAttributeNS(WORD_NS, "type") ?? ""),
+  );
+}
+
+async function defaultWordParagraphStyleId(zip: JSZip): Promise<string> {
+  const stylesFile = zip.file("word/styles.xml");
+  if (!stylesFile) return "Normal";
+  const styles = new DOMParser().parseFromString(await stylesFile.async("string"), "application/xml");
+  const normal = Array.from(styles.getElementsByTagNameNS(WORD_NS, "style")).find((style) =>
+    style.getAttributeNS(WORD_NS, "type") === "paragraph"
+    && style.getAttributeNS(WORD_NS, "default") === "1",
+  );
+  return normal?.getAttributeNS(WORD_NS, "styleId") ?? "Normal";
 }
 
 function isInsideWordTable(paragraph: Element): boolean {
@@ -2125,8 +2189,9 @@ function canSplitWordParagraph(paragraph: Element): boolean {
   });
 }
 
-function splitParagraphAtManualBreaks(documentNode: globalThis.Document, paragraph: Element): Element[] {
-  if (!canSplitWordParagraph(paragraph) || isInsideWordTable(paragraph)) return [paragraph];
+function splitParagraphAtManualBreaks(documentNode: globalThis.Document, paragraph: Element, normalStyleId: string): Element[] {
+  if (!canSplitWordParagraph(paragraph)
+    || isProtectedWordParagraph(paragraph, paragraphText(paragraph), normalStyleId)) return [paragraph];
   if (!childElements(paragraph).some((child) =>
     child.localName === "r" && childElements(child).some((runChild) => ["br", "cr"].includes(runChild.localName)),
   )) return [paragraph];
@@ -2173,13 +2238,13 @@ function splitParagraphAtManualBreaks(documentNode: globalThis.Document, paragra
   return paragraphs;
 }
 
-function splitBodyParagraphsAtManualBreaks(documentNode: globalThis.Document): void {
+function splitBodyParagraphsAtManualBreaks(documentNode: globalThis.Document, normalStyleId: string): void {
   const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
-  for (const paragraph of paragraphs) splitParagraphAtManualBreaks(documentNode, paragraph);
+  for (const paragraph of paragraphs) splitParagraphAtManualBreaks(documentNode, paragraph, normalStyleId);
 }
 
-function formatWordDocument(documentNode: globalThis.Document): WordFormatReport {
-  splitBodyParagraphsAtManualBreaks(documentNode);
+function formatWordDocument(documentNode: globalThis.Document, normalStyleId: string): WordFormatReport {
+  splitBodyParagraphsAtManualBreaks(documentNode, normalStyleId);
   const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
   let fontRunCount = 0;
   let chineseRunCount = 0;
@@ -2193,28 +2258,28 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
 
   for (const paragraph of paragraphs) {
     const text = paragraphText(paragraph);
-    if (!text) continue;
+    if (!text.trim() || isProtectedWordParagraph(paragraph, text, normalStyleId)) continue;
     const hasCjk = paragraphHasCjkText(paragraph);
     const hasLatin = paragraphHasLatinText(paragraph);
-    const insideTable = isInsideWordTable(paragraph);
     const heading = isWordHeading(paragraph, text);
-    const headingLevel = insideTable ? 0 : recognizedHeadingLevel(paragraph, text);
-    if (insideTable || isWordList(paragraph)) continue;
+    const headingLevel = recognizedHeadingLevel(paragraph, text);
+    let paragraphChanged = false;
     if (headingLevel > 0) {
       headingCount += 1;
-      clearFirstLineIndent(documentNode, paragraph);
-      setWordParagraphSpacing(documentNode, paragraph, "240", "120");
+      const spacingChanged = setWordParagraphSpacing(documentNode, paragraph, "240", "120");
+      paragraphChanged = spacingChanged;
       const properties = ensureChildElement(documentNode, paragraph, "pPr");
-      ensureChildElement(documentNode, properties, "keepNext");
+      if (!childElements(properties).some((child) => child.localName === "keepNext")) {
+        ensureChildElement(documentNode, properties, "keepNext");
+        paragraphChanged = true;
+      }
     } else if (hasCjk && !heading) {
-      chineseParagraphCount += 1;
-      setFirstLineIndent(documentNode, paragraph, "420");
-      setWordParagraphSpacing(documentNode, paragraph, "0", "0");
+      const indentChanged = setFirstLineIndent(documentNode, paragraph, "420");
+      const spacingChanged = setWordParagraphSpacing(documentNode, paragraph, "0", "0");
+      paragraphChanged = indentChanged || spacingChanged;
     } else if (!heading) {
-      clearFirstLineIndent(documentNode, paragraph);
-      setWordParagraphSpacing(documentNode, paragraph, "0", "0");
+      paragraphChanged = setWordParagraphSpacing(documentNode, paragraph, "0", "0");
     }
-    if (hasLatin && !heading && headingLevel === 0) englishParagraphCount += 1;
 
     const runs = Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "r"));
     for (const run of runs) {
@@ -2226,18 +2291,25 @@ function formatWordDocument(documentNode: globalThis.Document): WordFormatReport
       const runHasCjk = /[\u3400-\u9fff]/.test(runText);
       const runHasLatin = /[A-Za-z]/.test(runText);
       if (heading && headingLevel === 0) continue;
-      setWordFont(documentNode, run, "Times New Roman", runHasCjk ? "SimSun" : "Times New Roman");
+      let runChanged = setWordFont(documentNode, run, "Times New Roman", runHasCjk ? "SimSun" : "Times New Roman");
       if (headingLevel > 0) {
-        const bold = ensureChildElement(documentNode, ensureChildElement(documentNode, run, "rPr"), "b");
-        bold.setAttributeNS(WORD_NS, "w:val", "1");
+        const properties = ensureChildElement(documentNode, run, "rPr");
+        if (!childElements(properties).some((child) => child.localName === "b")) {
+          ensureChildElement(documentNode, properties, "b").setAttributeNS(WORD_NS, "w:val", "1");
+          runChanged = true;
+        }
       }
       if (!run.getElementsByTagNameNS(WORD_NS, "vertAlign").length) {
-        setWordRunSize(documentNode, run, headingLevel === 1 ? "32" : headingLevel === 2 ? "28" : headingLevel === 3 ? "26" : "24");
+        runChanged = setWordRunSize(documentNode, run, headingLevel === 1 ? "32" : headingLevel === 2 ? "28" : headingLevel === 3 ? "26" : "24") || runChanged;
       }
+      if (!runChanged) continue;
       fontRunCount += 1;
       if (runHasCjk) chineseRunCount += 1;
       if (runHasLatin) englishRunCount += 1;
+      paragraphChanged = true;
     }
+    if (paragraphChanged && hasCjk && headingLevel === 0) chineseParagraphCount += 1;
+    if (paragraphChanged && hasLatin && !hasCjk && headingLevel === 0) englishParagraphCount += 1;
   }
 
   return {
@@ -2261,7 +2333,9 @@ export async function inspectWordOptimization(file: File, options: WordOptimizat
   const repairReport = inspectWordRepairReport(documentNode);
   const comparisonCleanupCount = cleanWordComparisonPairs(documentNode);
   const plainTextCleanupCount = cleanWordPlainTextEscapes(documentNode);
-  const formatReport = options.formatDocument ? formatWordDocument(documentNode) : emptyWordFormatReport();
+  const formatReport = options.formatDocument
+    ? formatWordDocument(documentNode, await defaultWordParagraphStyleId(zip))
+    : emptyWordFormatReport();
   return {
     encoding: "DOCX / UTF-8",
     formulaCount: repairReport.detectedCount,
@@ -2302,7 +2376,9 @@ export async function optimizeWord(file: File, options: WordOptimizationOptions 
   const plainTextCleanupCount = cleanWordPlainTextEscapes(documentNode);
   const serialized = new XMLSerializer().serializeToString(documentNode);
   const outputDocument = new DOMParser().parseFromString(serialized, "application/xml");
-  const formatReport = options.formatDocument ? formatWordDocument(outputDocument) : emptyWordFormatReport();
+  const formatReport = options.formatDocument
+    ? formatWordDocument(outputDocument, await defaultWordParagraphStyleId(zip))
+    : emptyWordFormatReport();
   const finalSerialized = options.formatDocument ? new XMLSerializer().serializeToString(outputDocument) : serialized;
   zip.file("word/document.xml", finalSerialized);
   const finalBlob = await zip.generateAsync({
