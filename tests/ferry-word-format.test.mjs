@@ -136,6 +136,33 @@ test("short form fields keep their existing formatting", async () => {
   assert.equal(paragraphs[1].getElementsByTagNameNS(WORD_NS, "spacing").item(0)?.getAttributeNS(WORD_NS, "line"), "360");
 });
 
+test("mixed-font table of contents is unified without losing highlighted entries", async () => {
+  const source = `<w:document xmlns:w="${WORD_NS}"><w:body>
+    <w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/></w:docPartObj></w:sdtPr><w:sdtContent>
+      <w:p><w:r><w:t>目录</w:t></w:r></w:p>
+      <w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:rPr><w:rFonts w:eastAsia="宋体"/><w:bCs/></w:rPr><w:t>第一部分</w:t></w:r><w:r><w:t>5</w:t></w:r></w:p>
+      <w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:rPr><w:rFonts w:eastAsia="黑体"/><w:b/><w:highlight w:val="yellow"/></w:rPr><w:t>主要人员简历表</w:t></w:r><w:r><w:t>44</w:t></w:r></w:p>
+      <w:p><w:pPr><w:pStyle w:val="TOC2"/></w:pPr><w:r><w:rPr><w:rFonts w:eastAsia="黑体"/></w:rPr><w:t>下级标题</w:t></w:r></w:p>
+    </w:sdtContent></w:sdt>
+  </w:body></w:document>`;
+  const zip = new JSZip();
+  zip.file("word/document.xml", source);
+  const file = new File([await zip.generateAsync({ type: "uint8array" })], "toc.docx");
+  const result = await optimizeWord(file, { formatDocument: true });
+  const output = await JSZip.loadAsync(await result.blob.arrayBuffer());
+  const documentNode = new xml.DOMParser().parseFromString(await output.file("word/document.xml").async("string"), "text/xml");
+  const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
+  const font = (paragraph) => paragraph.getElementsByTagNameNS(WORD_NS, "rFonts").item(0)?.getAttributeNS(WORD_NS, "eastAsia");
+
+  assert.deepEqual(paragraphs.map((paragraph) => paragraph.textContent), ["目录", "第一部分5", "主要人员简历表44", "下级标题"]);
+  assert.equal(font(paragraphs[1]), "宋体");
+  assert.equal(font(paragraphs[2]), "宋体");
+  assert.equal(font(paragraphs[3]), "黑体");
+  assert.equal(paragraphs[2].getElementsByTagNameNS(WORD_NS, "highlight").item(0)?.getAttributeNS(WORD_NS, "val"), "yellow");
+  assert.equal(paragraphs[2].getElementsByTagNameNS(WORD_NS, "b").length, 0);
+  assert.equal(paragraphs[2].getElementsByTagNameNS(WORD_NS, "bCs").length, 0);
+});
+
 if (process.env.FERRY_REAL_SAMPLE) {
   test("a real Word sample keeps its tables and drawings", async () => {
     const source = readFileSync(process.env.FERRY_REAL_SAMPLE);

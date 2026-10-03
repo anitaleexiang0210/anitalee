@@ -2243,7 +2243,53 @@ function splitBodyParagraphsAtManualBreaks(documentNode: globalThis.Document, no
   for (const paragraph of paragraphs) splitParagraphAtManualBreaks(documentNode, paragraph, normalStyleId);
 }
 
+function normalizeWordTocFonts(documentNode: globalThis.Document): void {
+  for (const control of Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "sdt"))) {
+    const properties = childElements(control).find((child) => child.localName === "sdtPr");
+    const gallery = properties?.getElementsByTagNameNS(WORD_NS, "docPartGallery").item(0);
+    if (gallery?.getAttributeNS(WORD_NS, "val") !== "Table of Contents") continue;
+    const content = childElements(control).find((child) => child.localName === "sdtContent");
+    if (!content) continue;
+    const entries = new Map<string, Element[]>();
+    for (const paragraph of Array.from(content.getElementsByTagNameNS(WORD_NS, "p"))) {
+      const style = paragraphStyleId(paragraph);
+      if (!style) continue;
+      entries.set(style, [...(entries.get(style) ?? []), paragraph]);
+    }
+    for (const paragraphs of entries.values()) {
+      const fonts: string[] = [];
+      for (const paragraph of paragraphs) {
+        for (const run of Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "r"))) {
+          const runText = childElements(run).filter((child) => child.localName === "t")
+            .map((child) => child.textContent ?? "").join("");
+          if (!/[\u3400-\u9fff]/.test(runText)) continue;
+          const runProperties = childElements(run).find((child) => child.localName === "rPr");
+          const font = runProperties && childElements(runProperties).find((child) => child.localName === "rFonts")
+            ?.getAttributeNS(WORD_NS, "eastAsia");
+          if (font) fonts.push(font);
+        }
+      }
+      if (new Set(fonts).size < 2) continue;
+      const eastAsiaFont = fonts[0];
+      for (const paragraph of paragraphs) {
+        for (const run of Array.from(paragraph.getElementsByTagNameNS(WORD_NS, "r"))) {
+          if (!childElements(run).some((child) => child.localName === "t" && child.textContent)) continue;
+          const runProperties = ensureChildElement(documentNode, run, "rPr");
+          const runFonts = ensureChildElement(documentNode, runProperties, "rFonts");
+          runFonts.setAttributeNS(WORD_NS, "w:eastAsia", eastAsiaFont);
+          runFonts.setAttributeNS(WORD_NS, "w:ascii", "Times New Roman");
+          runFonts.setAttributeNS(WORD_NS, "w:hAnsi", "Times New Roman");
+          for (const child of childElements(runProperties)) {
+            if (child.localName === "b" || child.localName === "bCs") runProperties.removeChild(child);
+          }
+        }
+      }
+    }
+  }
+}
+
 function formatWordDocument(documentNode: globalThis.Document, normalStyleId: string): WordFormatReport {
+  normalizeWordTocFonts(documentNode);
   splitBodyParagraphsAtManualBreaks(documentNode, normalStyleId);
   const paragraphs = Array.from(documentNode.getElementsByTagNameNS(WORD_NS, "p"));
   let fontRunCount = 0;
