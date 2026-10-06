@@ -129,6 +129,42 @@ test("standard mode keeps a real DOCX readable after adding heading numbering", 
   assert.equal(outputParagraphs[3].getElementsByTagNameNS(W, "outlineLvl").length, 0);
 });
 
+test("ordinary numbered clauses stay editable while suggested formatting can be corrected and embedded objects stay intact", async () => {
+  const sourceFile = await sampleDocx();
+  const zip = await JSZip.loadAsync(await sourceFile.arrayBuffer());
+  const sourceXml = await zip.file("word/document.xml").async("string");
+  zip.file("word/document.xml", sourceXml.replace("<w:sectPr", `
+    <w:p><w:r><w:t>5.如我方成交，我方承诺：</w:t></w:r></w:p>
+    <w:p><w:r><w:t>项目名称：________</w:t></w:r></w:p>
+    <w:p><w:r><w:drawing/></w:r><w:r><w:t>签章位置</w:t></w:r></w:p>
+    <w:sectPr`));
+  const file = new File([await zip.generateAsync({ type: "uint8array" })], "保护纠错样本.docx");
+  const inspection = await inspectBidDocx(file);
+  assert.equal(inspection.paragraphs[9].protectedReason, null);
+  assert.equal(inspection.paragraphs[10].protectionKind, "suggested");
+  assert.equal(inspection.paragraphs[11].protectionKind, "fixed-object");
+
+  const options = {
+    boundaryIndex: 3, technicalEndIndex: 12, mode: "standard", formatBusiness: true,
+    scheme: 1, tocDepth: 3, tocBeforeIndex: null, applyPageLayout: false,
+    levels: { 9: 0, 10: 0, 11: 0 }, protectedIndices: [], unprotectedIndices: [],
+  };
+  const getOutput = async (result) => {
+    const bundle = await JSZip.loadAsync(await result.zip.arrayBuffer());
+    const docx = await JSZip.loadAsync(await bundle.file("保护纠错样本_顷刻排版.docx").async("uint8array"));
+    return paragraphs(await docx.file("word/document.xml").async("string"));
+  };
+  const original = paragraphs(await zip.file("word/document.xml").async("string"));
+  const defaultOutput = await getOutput(await formatBidDocx(file, inspection, options));
+  assert.notEqual(new xml.XMLSerializer().serializeToString(defaultOutput[9]), new xml.XMLSerializer().serializeToString(original[9]));
+  assert.equal(defaultOutput[9].getElementsByTagNameNS(W, "outlineLvl").length, 0);
+  assert.equal(new xml.XMLSerializer().serializeToString(defaultOutput[10]), new xml.XMLSerializer().serializeToString(original[10]));
+  const correctedOutput = await getOutput(await formatBidDocx(file, inspection, { ...options, unprotectedIndices: [10, 11] }));
+  assert.notEqual(new xml.XMLSerializer().serializeToString(correctedOutput[10]), new xml.XMLSerializer().serializeToString(original[10]));
+  assert.equal(new xml.XMLSerializer().serializeToString(correctedOutput[11]), new xml.XMLSerializer().serializeToString(original[11]));
+  assert.equal(correctedOutput[9].getElementsByTagNameNS(W, "t").item(0).textContent, "5.如我方成交，我方承诺：");
+});
+
 test("business mode uses the recurring body size instead of a front-page size", async () => {
   const document = new Document({ sections: [{ children: [
     new Paragraph({ children: [new TextRun({ text: "这是一段用于首页说明的较长文字，不能代表商务正文的实际字号。", size: 30 })] }),

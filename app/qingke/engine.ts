@@ -15,6 +15,7 @@ export type BidParagraph = {
   inferredLevel: number;
   manualNumber: boolean;
   protectedReason: string | null;
+  protectionKind: "fixed-object" | "suggested" | null;
 };
 
 export type BidPreviewBlock =
@@ -42,6 +43,7 @@ export type BidOptions = {
   applyPageLayout: boolean;
   levels: Record<number, number>;
   protectedIndices: number[];
+  unprotectedIndices: number[];
 };
 
 export type BidResult = {
@@ -139,20 +141,25 @@ function headingLevel(paragraph: Element, text: string): number {
   return 0;
 }
 
-function protectedReason(paragraph: Element, text: string, index: number): string | null {
+function classifyProtection(paragraph: Element, text: string, index: number): Pick<BidParagraph, "protectedReason" | "protectionKind"> {
   if (["drawing", "pict", "object", "fldChar", "fldSimple", "instrText", "sdt", "hyperlink"].some((tag) => descendants(paragraph, tag).length)) {
-    return "含图片、签章、域或特殊对象";
+    return { protectedReason: "含图片、签章、域或特殊对象", protectionKind: "fixed-object" };
   }
   if (index < 12 && /^(?:\s*(?:正本|副本|封面|投标文件|项目名称|项目编号|招标编号|投标人|投标单位|投标日期|法定代表人|授权代表))/.test(text)) {
-    return "疑似封面或固定信息";
+    return { protectedReason: "疑似封面或固定信息", protectionKind: "suggested" };
   }
-  if (index < 20 && text.trim() === "目录") return "原有目录标题";
+  if (index < 20 && text.trim() === "目录") return { protectedReason: "原有目录标题", protectionKind: "suggested" };
   const pPr = direct(paragraph, "pPr");
   const explicitHeading = /(?:Heading|标题|head)[\s_-]*[1-9]$/i.test(value(pPr ? direct(pPr, "pStyle") : null)) ||
     /^[0-8]$/.test(value(pPr ? direct(pPr, "outlineLvl") : null));
-  if (descendants(paragraph, "numPr").length && !explicitHeading) return "已有自动列表";
-  if (/^\s*[^。！？]{1,30}[：:][^。！？]{0,70}\s*$/.test(text) || /_{4,}|＿{4,}/.test(text)) return "疑似固定表单";
-  return null;
+  if (descendants(paragraph, "numPr").length && !explicitHeading) return { protectedReason: "已有自动列表", protectionKind: "suggested" };
+  if (/_{4,}|＿{4,}/.test(text)) return { protectedReason: "疑似填写栏", protectionKind: "suggested" };
+  return { protectedReason: null, protectionKind: null };
+}
+
+export function isProtectedParagraph(item: BidParagraph, protectedIndices: number[], unprotectedIndices: number[]): boolean {
+  return item.protectionKind === "fixed-object" || protectedIndices.includes(item.index) ||
+    (item.protectionKind === "suggested" && !unprotectedIndices.includes(item.index));
 }
 
 async function openDocx(file: File) {
@@ -176,7 +183,7 @@ export async function inspectBidDocx(file: File): Promise<BidInspection> {
       styleId,
       inferredLevel: headingLevel(paragraph, text),
       manualNumber: manualPrefix(text).yes || descendants(paragraph, "numPr").length > 0,
-      protectedReason: protectedReason(paragraph, text, index),
+      ...classifyProtection(paragraph, text, index),
     };
   });
   const body = descendants(documentXml, "body")[0];
@@ -211,21 +218,22 @@ export async function inspectBidDocx(file: File): Promise<BidInspection> {
   };
 }
 
-export async function inspectBusinessFormats(file: File, inspection: BidInspection, boundaryIndex: number, levels: Record<number, number> = {}): Promise<Array<{ level: number; example: string; font: string; size: number; align: string; source: ResolvedBusinessSpec["source"] }>> {
+export async function inspectBusinessFormats(file: File, inspection: BidInspection, boundaryIndex: number, levels: Record<number, number> = {}, unprotectedIndices: number[] = []): Promise<Array<{ level: number; example: string; font: string; size: number; align: string; source: ResolvedBusinessSpec["source"] }>> {
   const { zip, documentXml } = await openDocx(file);
   const paragraphs = getParagraphs(documentXml);
   const stylesFile = zip.file("word/styles.xml");
   const styles = stylesFile ? parseXml(await stylesFile.async("string"), "样式配置") : null;
-  return resolveBusinessSpecs(paragraphs, inspection, boundaryIndex, styles, levels).map(({ spec, item, source }, level) => {
+  return resolveBusinessSpecs(paragraphs, inspection, boundaryIndex, styles, levels, unprotectedIndices).map(({ spec, item, source }, level) => {
     return { level, example: item?.text.slice(0, 38) ?? "", font: spec.font,
       size: spec.size / 2, align: spec.align, source };
   });
 }
 
 function businessSample(paragraphs: Element[], inspection: BidInspection, boundaryIndex: number, styles: XMLDocument | null, level: number,
-  levels: Record<number, number> = {}): { item: BidParagraph; spec: StyleSpec } | null {
+  levels: Record<number, number> = {}, unprotectedIndices: number[] = []): { item: BidParagraph; spec: StyleSpec } | null {
   const candidates = inspection.paragraphs.filter((item) => item.index < boundaryIndex &&
-    (levels[item.index] ?? item.inferredLevel) === level && !item.protectedReason &&
+    (levels[item.index] ?? item.inferredLevel) === level &&
+    (item.protectionKind === null || (item.protectionKind === "suggested" && unprotectedIndices.includes(item.index))) &&
     item.text.trim().length >= (level === 0 ? 25 : 2));
   if (!candidates.length) return null;
   if (level > 0) return { item: candidates[0], spec: firstRunSpec(paragraphs[candidates[0].index], styles, level) };
@@ -266,10 +274,10 @@ function firstRunSpec(paragraph: Element, styles: XMLDocument | null, level: num
 }
 
 function resolveBusinessSpecs(paragraphs: Element[], inspection: BidInspection, boundaryIndex: number, styles: XMLDocument | null,
-  levels: Record<number, number> = {}): ResolvedBusinessSpec[] {
+  levels: Record<number, number> = {}, unprotectedIndices: number[] = []): ResolvedBusinessSpec[] {
   const resolved: ResolvedBusinessSpec[] = [];
   for (let level = 0; level < STANDARD.length; level++) {
-    const sample = businessSample(paragraphs, inspection, boundaryIndex, styles, level, levels);
+    const sample = businessSample(paragraphs, inspection, boundaryIndex, styles, level, levels, unprotectedIndices);
     const previous = resolved[level - 1]?.spec;
     if (sample) {
       const size = level > 1 && previous ? Math.min(sample.spec.size, previous.size) : sample.spec.size;
@@ -285,7 +293,7 @@ function resolveBusinessSpecs(paragraphs: Element[], inspection: BidInspection, 
 }
 
 function businessSpecs(paragraphs: Element[], inspection: BidInspection, options: BidOptions, styles: XMLDocument | null): StyleSpec[] {
-  return resolveBusinessSpecs(paragraphs, inspection, options.boundaryIndex, styles, options.levels).map(({ spec }) => spec);
+  return resolveBusinessSpecs(paragraphs, inspection, options.boundaryIndex, styles, options.levels, options.unprotectedIndices).map(({ spec }) => spec);
 }
 
 function upsertProperty(parent: Element, name: string, order: string[]): Element {
@@ -530,6 +538,7 @@ export async function formatBidDocx(file: File, inspection: BidInspection, optio
   const specs = options.mode === "business" ? businessSpecs(paragraphs, inspection, options, styles) : STANDARD;
   const report: string[] = [];
   const protectedSet = new Set(options.protectedIndices);
+  const unprotectedSet = new Set(options.unprotectedIndices);
   let formattedParagraphs = 0;
   let numberedHeadings = 0;
   const numberTargets: Array<{ paragraph: Element; level: number }> = [];
@@ -537,7 +546,8 @@ export async function formatBidDocx(file: File, inspection: BidInspection, optio
     const paragraph = paragraphs[item.index];
     const level = options.levels[item.index] ?? item.inferredLevel;
     if (!item.text.trim()) continue;
-    if (protectedSet.has(item.index) || item.protectedReason) {
+    if (protectedSet.has(item.index) || item.protectionKind === "fixed-object" ||
+      (item.protectionKind === "suggested" && !unprotectedSet.has(item.index))) {
       if (level > 0) report.push(`第 ${item.index + 1} 段「${item.text.slice(0, 36)}」已保护，未改格式。`);
       continue;
     }

@@ -1,11 +1,13 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { accountServiceReady, currentSession, myAccount } from "./auth";
 import {
   formatBidDocx,
   inspectBidDocx,
   inspectBusinessFormats,
+  isProtectedParagraph,
   type BidInspection,
   type FormatMode,
   type NumberScheme,
@@ -36,7 +38,27 @@ function trim(text: string, length = 72) {
 }
 
 function HelpTip({ text }: { text: string }) {
-  return <span className="qingke-tip"><button type="button" aria-label={`说明：${text}`}>?</button><span role="tooltip">{text}</span></span>;
+  const id = useId();
+  const button = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number; below: boolean } | null>(null);
+  function show() {
+    const bounds = button.current?.getBoundingClientRect();
+    if (!bounds) return;
+    const width = Math.min(235, window.innerWidth - 24);
+    setPosition({ left: Math.max(12, Math.min(bounds.left + bounds.width / 2 - width / 2, window.innerWidth - width - 12)),
+      top: bounds.top > 100 ? bounds.top - 8 : bounds.bottom + 8, below: bounds.top <= 100 });
+  }
+  useEffect(() => {
+    if (!position) return;
+    const hide = () => setPosition(null);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => { window.removeEventListener("scroll", hide, true); window.removeEventListener("resize", hide); };
+  }, [position]);
+  return <span className="qingke-tip"><button ref={button} type="button" aria-label="查看说明" aria-describedby={position ? id : undefined}
+    onMouseEnter={show} onMouseLeave={() => setPosition(null)} onFocus={show} onBlur={() => setPosition(null)}>?</button>
+    {position && createPortal(<span id={id} role="tooltip" className="qingke-floating-tip"
+      style={{ left: position.left, top: position.top, transform: position.below ? "none" : "translateY(-100%)" }}>{text}</span>, document.body)}</span>;
 }
 
 export default function QingkePage() {
@@ -53,6 +75,7 @@ export default function QingkePage() {
   const [confirmedIndices, setConfirmedIndices] = useState<number[]>([]);
   const [levelChanges, setLevelChanges] = useState<Record<number, number>>({});
   const [protectedIndices, setProtectedIndices] = useState<number[]>([]);
+  const [unprotectedIndices, setUnprotectedIndices] = useState<number[]>([]);
   const [formatBusiness, setFormatBusiness] = useState(false);
   const [businessFormats, setBusinessFormats] = useState<BusinessFormat[]>([]);
   const [scheme, setScheme] = useState<NumberScheme>(1);
@@ -76,11 +99,11 @@ export default function QingkePage() {
   useEffect(() => {
     if (mode !== "business" || !file || !inspection || boundary === null) return;
     let cancelled = false;
-    inspectBusinessFormats(file, inspection, boundary, levelChanges)
+    inspectBusinessFormats(file, inspection, boundary, levelChanges, unprotectedIndices)
       .then((formats) => { if (!cancelled) setBusinessFormats(formats); })
       .catch(() => { if (!cancelled) setMessage("商务样式读取不完整；导出时将对缺失的样式使用内置标准。"); });
     return () => { cancelled = true; };
-  }, [mode, file, inspection, boundary, levelChanges]);
+  }, [mode, file, inspection, boundary, levelChanges, unprotectedIndices]);
 
   const searchResults = useMemo(() => {
     const query = previewQuery.trim().toLowerCase();
@@ -92,15 +115,17 @@ export default function QingkePage() {
   const suggestedEnds = useMemo(() => inspection && boundary !== null ? inspection.paragraphs.filter((p) => p.index > boundary && !p.protectedReason && /其他资料|商务部分|商务标/.test(p.text)).slice(0, 4) : [], [inspection, boundary]);
   const reviewCandidates = useMemo(() => {
     if (!inspection || boundary === null || technicalEnd === null) return [];
-    return inspection.paragraphs.filter((p) => p.inferredLevel > 0 && !p.protectedReason && p.manualNumber &&
+    return inspection.paragraphs.filter((p) => p.inferredLevel > 0 && !isProtectedParagraph(p, protectedIndices, unprotectedIndices) && p.manualNumber &&
       p.text.trim().length >= 18 && /[。；;]$/.test(p.text.trim()) &&
       p.index >= boundary && p.index < technicalEnd &&
       !confirmedIndices.includes(p.index));
-  }, [inspection, boundary, technicalEnd, confirmedIndices]);
+  }, [inspection, boundary, technicalEnd, confirmedIndices, protectedIndices, unprotectedIndices]);
 
   const selected = inspection && selectedIndex !== null ? inspection.paragraphs[selectedIndex] : null;
   const selectedLevel = selected ? levelChanges[selected.index] ?? selected.inferredLevel : 0;
-  const selectedProtected = selected ? protectedIndices.includes(selected.index) || !!selected.protectedReason : false;
+  const selectedProtected = selected ? isProtectedParagraph(selected, protectedIndices, unprotectedIndices) : false;
+  const fixedObjectCount = inspection?.paragraphs.filter((p) => p.protectionKind === "fixed-object").length ?? 0;
+  const suggestedProtectionCount = inspection?.paragraphs.filter((p) => p.protectionKind === "suggested" && !unprotectedIndices.includes(p.index)).length ?? 0;
   const selectedInTechnical = selected && boundary !== null && technicalEnd !== null && selected.index >= boundary && selected.index < technicalEnd;
   const selectedAfterTechnical = selected && technicalEnd !== null && selected.index >= technicalEnd;
   const selectedIsUnchangedBusiness = mode === "business" && !formatBusiness && selectedAfterTechnical;
@@ -120,6 +145,7 @@ export default function QingkePage() {
     setBusinessFormats([]);
     setLevelChanges({});
     setProtectedIndices([]);
+    setUnprotectedIndices([]);
     setTocBefore(null);
     try {
       const info = await inspectBidDocx(chosen);
@@ -186,6 +212,10 @@ export default function QingkePage() {
     setProtectedIndices((current) => current.includes(index) ? current.filter((item) => item !== index) : [...current, index]);
   }
 
+  function toggleSuggestedProtection(index: number) {
+    setUnprotectedIndices((current) => current.includes(index) ? current.filter((item) => item !== index) : [...current, index]);
+  }
+
   async function exportResult() {
     if (!file || !inspection || !mode || boundary === null || technicalEnd === null) return;
     setBusy("writing");
@@ -207,6 +237,7 @@ export default function QingkePage() {
         applyPageLayout,
         levels: levelChanges,
         protectedIndices,
+        unprotectedIndices,
       });
       download(output.zip, `${file.name.replace(/\.docx$/i, "")}_顷刻排版与检查说明.zip`);
       setResult({ formatted: output.formattedParagraphs, numbered: output.numberedHeadings, report: output.report });
@@ -222,7 +253,7 @@ export default function QingkePage() {
     <div className="qingke-app">
       <header className="qingke-header">
         <a className="qingke-brand" href="/qingke" aria-label="顷刻投标排版工具首页">
-          <span className="qingke-brand-mark">顷</span>
+          <img className="qingke-brand-mark" src="/qingke-logo.svg" alt="" />
           <span><strong>顷刻</strong><small>投标排版工具</small></span>
         </a>
         <nav aria-label="页内导航">
@@ -238,7 +269,7 @@ export default function QingkePage() {
           <div className="qingke-hero-copy">
             <p className="qingke-eyebrow">专为标书最后一公里而做</p>
             <h1>把时间留给投标内容，<br /><em>把排版交给顷刻。</em></h1>
-            <p className="qingke-lead">针对已合并的商务标与技术标，梳理标题层级、编号、正文样式与目录。标题和正文文字始终不改；固定表单与签章优先保护，结果由你在 Word/WPS 中复核。</p>
+            <p className="qingke-lead">针对已合并的商务标与技术标，梳理标题层级、编号、正文样式与目录。标题和正文文字始终不改；图片、签章等对象保持原样，结果由你在 Word/WPS 中复核。</p>
             <div className="qingke-hero-actions">
               <a className="qingke-primary" href="#workflow">开始整理 DOCX <span aria-hidden="true">↗</span></a>
               <span>文件在浏览器本地处理 · 不上传标书</span>
@@ -297,7 +328,7 @@ export default function QingkePage() {
           {inspection && (
             <section className="qingke-panel qingke-review-panel" aria-labelledby="review-title">
               <div className="qingke-step-title"><span>03</span><div><h3 id="review-title">看着文件，点选要调整的地方</h3><p>先在左侧点出技术部分的范围，再核对工具可能认错的标题。标题和正文的文字始终不改。</p></div></div>
-              <div className="qingke-review-overview"><strong>{boundary === null ? "先找技术部分的第一段" : technicalEnd === null ? "再找技术部分后面的第一段商务内容" : reviewCandidates.length ? `已标出技术范围；建议核对 ${reviewCandidates.length} 处` : "已标出技术范围，可以继续"}</strong><span>表格及 {inspection.paragraphs.filter((p) => p.protectedReason).length} 处特殊内容自动保护</span></div>
+              <div className="qingke-review-overview"><strong>{boundary === null ? "先找技术部分的第一段" : technicalEnd === null ? "再找技术部分后面的第一段商务内容" : reviewCandidates.length ? `已标出技术范围；建议核对 ${reviewCandidates.length} 处` : "已标出技术范围，可以继续"}</strong><span>表格 {inspection.tableCount} 个、含图片等对象 {fixedObjectCount} 段保持原样{suggestedProtectionCount > 0 ? `；另有 ${suggestedProtectionCount} 段建议保留格式，可逐段更改` : ""} <HelpTip text="保持原样指不调整这处的格式，文字内容始终不会改。表格、图片、签章等对象为避免损坏会保持原样；对普通文字的保留建议可以点选后取消。" /></span></div>
               <div className="qingke-preview-layout">
                 <div className="qingke-preview-column">
                   <div className="qingke-preview-head"><div><h4>原文件内容预览</h4><p>按原文顺序显示。点一段文字，在右边选择怎么处理。</p></div><HelpTip text="这里按原文顺序显示内容，方便点选位置，不模拟 Word/WPS 的最终字体和分页。表格可展开查看，图片等特殊内容用标记显示。" /></div>
@@ -313,10 +344,11 @@ export default function QingkePage() {
                       if (!p.text.trim() && !p.protectedReason) return <div className="qingke-preview-blank" key={p.index} aria-hidden="true" />;
                       const level = levelChanges[p.index] ?? p.inferredLevel;
                       const region = boundary !== null && p.index >= boundary && (technicalEnd === null || p.index < technicalEnd) ? "technical" : "business";
+                      const staysUnchanged = isProtectedParagraph(p, protectedIndices, unprotectedIndices);
                       return <button type="button" id={`qingke-preview-${p.index}`} key={p.index}
-                        className={`qingke-preview-paragraph ${selectedIndex === p.index ? "selected" : ""} ${region} ${level > 0 ? "heading" : ""} ${p.protectedReason ? "protected" : ""}`}
+                        className={`qingke-preview-paragraph ${selectedIndex === p.index ? "selected" : ""} ${region} ${level > 0 ? "heading" : ""} ${staysUnchanged ? "protected" : ""}`}
                         onClick={() => chooseParagraph(p.index)} aria-label={`选择${trim(p.text || p.protectedReason || "特殊内容", 42)}`}>
-                        <span className="qingke-preview-marker">{p.index === boundary ? "技术从这里开始" : p.index === technicalEnd ? "之后为商务" : p.protectedReason ? "自动保护" : ""}</span>
+                        <span className="qingke-preview-marker">{p.index === boundary ? "技术从这里开始" : p.index === technicalEnd ? "之后为商务" : p.protectionKind === "fixed-object" ? "含图片等对象，保持原样" : staysUnchanged ? "格式保持原样" : ""}</span>
                         <span className="qingke-preview-copy">{p.text || "图片、签章或特殊内容（保持原样）"}</span>
                       </button>;
                     })}
@@ -339,16 +371,17 @@ export default function QingkePage() {
                     {selected && <>
                       <div className="qingke-selected-text"><small>{selectedInTechnical ? "技术部分" : "商务部分"} · 原文</small><strong>{selected.text || "图片、签章或特殊内容"}</strong></div>
                       {selected.manualNumber && <p className="qingke-selected-note">这段已有编号，工具会保留原编号。 <HelpTip text="例如“一、”“1.”等已有编号，不会再自动加一个。" /></p>}
-                      {selected.protectedReason ? <p className="qingke-safe-note">这段已自动保护：{selected.protectedReason}。格式和内容都保持原样。</p>
-                        : selectedIsUnchangedBusiness ? <p className="qingke-safe-note">你选择了参照商务格式，且没有勾选整理商务部分；这段无需调整。</p>
-                          : <>
-                            {mode === "business" && !formatBusiness && !selectedInTechnical && <p className="qingke-safe-note">商务部分的格式保持原样；这里更正“标题或正文”的判断，会帮助工具选对技术部分的参考样式。</p>}
-                            <p className="qingke-question">这是小标题，还是普通内容？</p>
-                            <div className="qingke-answer-buttons"><button type="button" className={selectedLevel === 0 ? "active" : ""} disabled={selectedProtected} onClick={() => confirmLevel(selected.index, 0)}>普通内容，不进目录</button><button type="button" className={selectedLevel > 0 ? "active" : ""} disabled={selectedProtected} onClick={() => confirmLevel(selected.index, selectedLevel > 0 && selectedLevel <= 9 ? selectedLevel : 1)}>这是标题</button></div>
-                            {selectedLevel > 0 && selectedLevel <= 9 && <label className="qingke-level-choice">它属于哪一级？ <HelpTip text="一级通常是大章节，二级是章节中的小节；目录默认只展示前 3 级，可选 4 级。" /><select value={selectedLevel} disabled={selectedProtected} onChange={(event) => confirmLevel(selected.index, Number(event.target.value))}>{Array.from({ length: 9 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 级标题{i === 0 ? "（大章节）" : i === 1 ? "（小节）" : ""}</option>)}</select></label>}
-                            {selectedLevel > 9 && <p className="qingke-safe-note">这是很深的编号，原编号会保留；超过 9 级的内容无法保证进入 Word/WPS 自动大纲。</p>}
-                            <label className="qingke-preserve-choice"><input type="checkbox" checked={selectedProtected} onChange={() => { toggleProtected(selected.index); setConfirmedIndices((current) => current.includes(selected.index) ? current : [...current, selected.index]); }} /> 不调整这段的格式 <HelpTip text="适合固定表单或你已经排好的段落。勾选后，这一段的字体、字号、编号都不再自动调整。" /></label>
-                          </>}
+                      {selected.protectionKind === "fixed-object" ? <p className="qingke-safe-note">这段含图片、签章、目录域或其他嵌入对象，工具会保留整段格式，避免损坏。请在 Word/WPS 中复核。</p> : <>
+                        {selected.protectionKind === "suggested" && <p className="qingke-safe-note">工具建议保持这段格式，原因：{selected.protectedReason}。如果判断错了，取消下面的勾选即可。</p>}
+                        {selectedIsUnchangedBusiness && <p className="qingke-safe-note">你选择了参照商务格式，且没有勾选整理商务部分；这段商务格式会保持原样。更正标题判断仍可帮助选对技术部分的参考样式。</p>}
+                        <label className="qingke-preserve-choice"><input type="checkbox" checked={selectedProtected} onChange={() => { if (selected.protectionKind === "suggested") toggleSuggestedProtection(selected.index); else toggleProtected(selected.index); setConfirmedIndices((current) => current.includes(selected.index) ? current : [...current, selected.index]); }} /> 保持这段格式原样 <HelpTip text="勾选后不会调整这段的字体、字号和编号。取消勾选后，可选择普通内容或标题；原文字始终不改。" /></label>
+                        {selectedProtected ? <p className="qingke-selected-note">当前会跳过这段的格式调整。取消勾选后，就能选择它是标题还是普通内容。</p> : <>
+                          <p className="qingke-question">这是小标题，还是普通内容？</p>
+                          <div className="qingke-answer-buttons"><button type="button" className={selectedLevel === 0 ? "active" : ""} onClick={() => confirmLevel(selected.index, 0)}>普通内容，不进目录</button><button type="button" className={selectedLevel > 0 ? "active" : ""} onClick={() => confirmLevel(selected.index, selectedLevel > 0 && selectedLevel <= 9 ? selectedLevel : 1)}>这是标题</button></div>
+                          {selectedLevel > 0 && selectedLevel <= 9 && <label className="qingke-level-choice">它属于哪一级？ <HelpTip text="一级通常是大章节，二级是章节中的小节；目录默认只展示前 3 级，可选 4 级。" /><select value={selectedLevel} onChange={(event) => confirmLevel(selected.index, Number(event.target.value))}>{Array.from({ length: 9 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 级标题{i === 0 ? "（大章节）" : i === 1 ? "（小节）" : ""}</option>)}</select></label>}
+                          {selectedLevel > 9 && <p className="qingke-safe-note">这是很深的编号，原编号会保留；超过 9 级的内容无法保证进入 Word/WPS 自动大纲。</p>}
+                        </>}
+                      </>}
                       {!inspection.hasToc && <button type="button" className="qingke-toc-choice" onClick={() => setTocBefore(selected.index)}>{tocBefore === selected.index ? "✓ 将在这段前建立目录" : "在这段前建立目录"}</button>}
                     </>}
                   </div>}
@@ -358,7 +391,7 @@ export default function QingkePage() {
               </div>
 
               {mode === "business" && boundary !== null && <details className="qingke-review-details"><summary>商务部分的格式参考与整理选项</summary><label className="qingke-preserve-choice"><input type="checkbox" checked={formatBusiness} onChange={(event) => setFormatBusiness(event.target.checked)} /> 同时整理商务部分格式 <HelpTip text="默认只整理技术部分；勾选后，商务部分中未保护的文字和标题也会按提取到的样式整理。" /></label><div className="qingke-format-list">{businessFormats.map((item) => <div key={item.level}><span>{item.level ? `${item.level} 级标题` : "正文"}</span><strong>{item.font} · {item.size} 磅</strong><small>{item.source === "business" ? `参考：${trim(item.example, 22)}` : item.source === "inherited" ? "沿用上一级商务标题" : item.source === "adjusted" ? "按上一级字号协调" : "内置格式补足"}</small></div>)}</div></details>}
-              <details className="qingke-review-details"><summary>查看已识别的标题与自动保护内容</summary><p>平时不用逐条检查；找不到的段落可用上方搜索框定位。</p><div className="qingke-review-jumps">{inspection.paragraphs.filter((p) => p.inferredLevel > 0 || p.protectedReason).slice(0, 80).map((p) => <button type="button" key={p.index} onClick={() => jumpToParagraph(p.index)}><span>{p.protectedReason ? "已保护" : `${p.inferredLevel} 级标题`}</span>{trim(p.text || p.protectedReason || "特殊内容", 60)}</button>)}</div></details>
+              <details className="qingke-review-details"><summary>查看已识别的标题与保持原样的内容</summary><p>平时不用逐条检查；找不到的段落可用上方搜索框定位。普通文字若被误判为需要保留格式，点开后可取消勾选。</p><div className="qingke-review-jumps">{inspection.paragraphs.filter((p) => p.inferredLevel > 0 || p.protectedReason).slice(0, 80).map((p) => <button type="button" key={p.index} onClick={() => jumpToParagraph(p.index)}><span>{p.protectionKind === "fixed-object" ? "对象原样" : isProtectedParagraph(p, protectedIndices, unprotectedIndices) ? "格式原样" : `${p.inferredLevel} 级标题`}</span>{trim(p.text || p.protectedReason || "特殊内容", 60)}</button>)}</div></details>
               {inspection.warnings.map((warning) => <p className="qingke-review-warning" key={warning}>{warning}</p>)}
             </section>
           )}
@@ -382,7 +415,7 @@ export default function QingkePage() {
           )}
         </section>
 
-        <section id="boundary" className="qingke-boundary"><div><span className="qingke-kicker">清楚的能力边界</span><h2>整理格式，<br />保留你的判断。</h2></div><div className="qingke-boundary-list"><p><b>文字始终由你掌握</b><span>不改写标题或正文，不自动生成技术内容。</span></p><p><b>复杂对象优先保护</b><span>固定表单、图片、签章与特殊域原样保留并提示检查。</span></p><p><b>最终文件仍需复核</b><span>不做合规判断或 PDF 定稿，不承诺任意标书一键提交。</span></p></div></section>
+        <section id="boundary" className="qingke-boundary"><div><span className="qingke-kicker">清楚的能力边界</span><h2>整理格式，<br />保留你的判断。</h2></div><div className="qingke-boundary-list"><p><b>文字始终由你掌握</b><span>不改写标题或正文，不自动生成技术内容。</span></p><p><b>复杂对象保持原样</b><span>表格、图片、签章与特殊域保持原样；疑似固定表单可由你判断。</span></p><p><b>最终文件仍需复核</b><span>不做合规判断或 PDF 定稿，不承诺任意标书一键提交。</span></p></div></section>
       </main>
       <footer className="qingke-footer"><span>顷刻投标排版工具</span><p>辅助整理已合并的 DOCX · 请依据招标文件要求复核</p><button type="button" onClick={() => setSupportOpen(true)}>联系客服 ↗</button></footer>
       {supportOpen && <div className="qingke-modal-backdrop" onClick={() => setSupportOpen(false)}><div className="qingke-modal" role="dialog" aria-modal="true" aria-label="联系客服" onClick={(event) => event.stopPropagation()}><button type="button" className="qingke-modal-close" onClick={() => setSupportOpen(false)} aria-label="关闭">×</button><span className="qingke-kicker">需要帮助？</span><h3>联系顷刻客服</h3><p>注册、兑换码或排版问题，可扫码联系。请先对标书和截图脱敏。</p><img src="/qingke-contact.png" alt="顷刻客服微信二维码" /><small>微信扫码添加客服</small></div></div>}

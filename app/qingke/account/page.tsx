@@ -75,7 +75,7 @@ export default function QingkeAccountPage() {
   }
 
   return <div className="qingke-app qingke-account-page">
-    <header className="qingke-header"><a className="qingke-brand" href="/qingke"><span className="qingke-brand-mark">顷</span><span><strong>顷刻</strong><small>投标排版工具</small></span></a><nav><a href="/qingke">返回排版工作台</a><button type="button" onClick={() => setSupportOpen(true)}>联系客服</button></nav></header>
+    <header className="qingke-header"><a className="qingke-brand" href="/qingke"><img className="qingke-brand-mark" src="/qingke-logo.svg" alt="" /><span><strong>顷刻</strong><small>投标排版工具</small></span></a><nav><a href="/qingke">返回排版工作台</a><button type="button" onClick={() => setSupportOpen(true)}>联系客服</button></nav></header>
     <main className="qingke-account-layout">
       <div className="qingke-account-intro"><span className="qingke-kicker">你的顷刻账号</span><h1>一枚兑换码，<br /><em>绑定你的账号。</em></h1><p>首次注册时填写手机号或邮箱并设置密码，再绑定卖家发给你的兑换码。换浏览器或电脑后，用同一账号登录即可恢复使用。</p><div className="qingke-account-points"><span>① 不需要手机验证码</span><span>② 标书文件只在浏览器本地处理</span><span>③ 密码不会显示给客服或管理员</span></div></div>
       <div className="qingke-account-card">
