@@ -14,7 +14,7 @@ const destination = resolve("dist", target === "front" ? "qingke-front" : "qingk
 rmSync(destination, { recursive: true, force: true });
 mkdirSync(destination, { recursive: true });
 
-for (const name of ["_next", "favicon.svg", "og.png"]) {
+for (const name of ["_next", "favicon.svg", "og.png", "_headers"]) {
   const item = join(source, name);
   if (existsSync(item)) cpSync(item, join(destination, name), { recursive: true });
 }
