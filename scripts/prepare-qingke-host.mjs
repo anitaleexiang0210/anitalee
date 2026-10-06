@@ -17,11 +17,10 @@ mkdirSync(destination, { recursive: true });
 const assetPrefix = readFileSync(join(source, "qingke.html"), "utf8").match(/(\/qingke-assets-[a-f0-9]+)\/_next\//)?.[1] ?? "";
 if (assetPrefix) mkdirSync(join(destination, assetPrefix), { recursive: true });
 
-for (const name of ["_next", "favicon.svg", "og.png", "_headers", "qingke-logo.svg", "qingke-logo-1024.png"]) {
+for (const name of ["_next", "favicon.svg", "og.png", "_headers", "qingke-logo-qk.png"]) {
   const item = join(source, name);
   if (existsSync(item)) cpSync(item, join(destination, name === "_next" ? assetPrefix + "/_next" : name), { recursive: true });
 }
-copyFileSync(join(source, "qingke-logo.svg"), join(destination, "favicon.svg"));
 
 function copyHtml(from, to) {
   copyFileSync(join(source, from), join(destination, to));

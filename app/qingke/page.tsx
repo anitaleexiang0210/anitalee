@@ -260,7 +260,7 @@ export default function QingkePage() {
     <div className="qingke-app">
       <header className="qingke-header">
         <a className="qingke-brand" href="/qingke" aria-label="顷刻投标排版工具首页">
-          <img className="qingke-brand-mark" src="/qingke-logo.svg" alt="" />
+          <img className="qingke-brand-mark" src="/qingke-logo-qk.png" alt="" />
           <span><strong>顷刻</strong><small>投标排版工具</small></span>
         </a>
         <nav aria-label="页内导航">
