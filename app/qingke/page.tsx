@@ -8,6 +8,7 @@ import {
   inspectBidDocx,
   inspectBusinessFormats,
   isProtectedParagraph,
+  numberedClauseGroup,
   type BidInspection,
   type FormatMode,
   type NumberScheme,
@@ -115,15 +116,15 @@ export default function QingkePage() {
   const suggestedEnds = useMemo(() => inspection && boundary !== null ? inspection.paragraphs.filter((p) => p.index > boundary && !p.protectedReason && /其他资料|商务部分|商务标/.test(p.text)).slice(0, 4) : [], [inspection, boundary]);
   const reviewCandidates = useMemo(() => {
     if (!inspection || boundary === null || technicalEnd === null) return [];
-    return inspection.paragraphs.filter((p) => p.inferredLevel > 0 && !isProtectedParagraph(p, protectedIndices, unprotectedIndices) && p.manualNumber &&
-      p.text.trim().length >= 18 && /[。；;]$/.test(p.text.trim()) &&
-      p.index >= boundary && p.index < technicalEnd &&
+    return inspection.paragraphs.filter((p) => p.suggestedLevel > 0 && !isProtectedParagraph(p, protectedIndices, unprotectedIndices) &&
+      ((p.index >= boundary && p.index < technicalEnd) || formatBusiness) &&
       !confirmedIndices.includes(p.index));
-  }, [inspection, boundary, technicalEnd, confirmedIndices, protectedIndices, unprotectedIndices]);
+  }, [inspection, boundary, technicalEnd, formatBusiness, confirmedIndices, protectedIndices, unprotectedIndices]);
 
   const selected = inspection && selectedIndex !== null ? inspection.paragraphs[selectedIndex] : null;
   const selectedLevel = selected ? levelChanges[selected.index] ?? selected.inferredLevel : 0;
   const selectedProtected = selected ? isProtectedParagraph(selected, protectedIndices, unprotectedIndices) : false;
+  const selectedGroup = selected && inspection ? numberedClauseGroup(inspection.paragraphs, selected.index) : [];
   const fixedObjectCount = inspection?.paragraphs.filter((p) => p.protectionKind === "fixed-object").length ?? 0;
   const suggestedProtectionCount = inspection?.paragraphs.filter((p) => p.protectionKind === "suggested" && !unprotectedIndices.includes(p.index)).length ?? 0;
   const selectedInTechnical = selected && boundary !== null && technicalEnd !== null && selected.index >= boundary && selected.index < technicalEnd;
@@ -206,6 +207,12 @@ export default function QingkePage() {
   function confirmLevel(index: number, level: number) {
     setLevelChanges((current) => ({ ...current, [index]: level }));
     setConfirmedIndices((current) => current.includes(index) ? current : [...current, index]);
+  }
+
+  function markGroupAsBody(indices: number[]) {
+    setLevelChanges((current) => Object.assign({}, current, ...indices.map((index) => ({ [index]: 0 }))));
+    setConfirmedIndices((current) => [...new Set([...current, ...indices])]);
+    setMessage(`已将连续的 ${indices.length} 段条款设为普通内容，原有序号和文字不变。`);
   }
 
   function toggleProtected(index: number) {
@@ -328,7 +335,7 @@ export default function QingkePage() {
           {inspection && (
             <section className="qingke-panel qingke-review-panel" aria-labelledby="review-title">
               <div className="qingke-step-title"><span>03</span><div><h3 id="review-title">看着文件，点选要调整的地方</h3><p>先在左侧点出技术部分的范围，再核对工具可能认错的标题。标题和正文的文字始终不改。</p></div></div>
-              <div className="qingke-review-overview"><strong>{boundary === null ? "先找技术部分的第一段" : technicalEnd === null ? "再找技术部分后面的第一段商务内容" : reviewCandidates.length ? `已标出技术范围；建议核对 ${reviewCandidates.length} 处` : "已标出技术范围，可以继续"}</strong><span>表格 {inspection.tableCount} 个、含图片等对象 {fixedObjectCount} 段保持原样{suggestedProtectionCount > 0 ? `；另有 ${suggestedProtectionCount} 段建议保留格式，可逐段更改` : ""} <HelpTip text="保持原样指不调整这处的格式，文字内容始终不会改。表格、图片、签章等对象为避免损坏会保持原样；对普通文字的保留建议可以点选后取消。" /></span></div>
+              <div className="qingke-review-overview"><strong>{boundary === null ? "先找技术部分的第一段" : technicalEnd === null ? "再找技术部分后面的第一段商务内容" : reviewCandidates.length ? `已标出技术范围；${reviewCandidates.length} 处带编号内容暂按正文处理` : "已标出技术范围，可以继续"}</strong><span>表格 {inspection.tableCount} 个、含图片等对象 {fixedObjectCount} 段保持原样{suggestedProtectionCount > 0 ? `；另有 ${suggestedProtectionCount} 段建议保留格式，可逐段更改` : ""} <HelpTip text="保持原样指不调整这处的格式，文字内容始终不会改。表格、图片、签章等对象为避免损坏会保持原样；对普通文字的保留建议可以点选后取消。" /></span></div>
               <div className="qingke-preview-layout">
                 <div className="qingke-preview-column">
                   <div className="qingke-preview-head"><div><h4>原文件内容预览</h4><p>按原文顺序显示。点一段文字，在右边选择怎么处理。</p></div><HelpTip text="这里按原文顺序显示内容，方便点选位置，不模拟 Word/WPS 的最终字体和分页。表格可展开查看，图片等特殊内容用标记显示。" /></div>
@@ -371,13 +378,15 @@ export default function QingkePage() {
                     {selected && <>
                       <div className="qingke-selected-text"><small>{selectedInTechnical ? "技术部分" : "商务部分"} · 原文</small><strong>{selected.text || "图片、签章或特殊内容"}</strong></div>
                       {selected.manualNumber && <p className="qingke-selected-note">这段已有编号，工具会保留原编号。 <HelpTip text="例如“一、”“1.”等已有编号，不会再自动加一个。" /></p>}
+                      {selected.manualNumber && selected.inferredLevel === 0 && <p className="qingke-safe-note">有序号不一定是标题。这段默认按普通内容处理；如果它应该进入目录，请点“这是标题”。</p>}
                       {selected.protectionKind === "fixed-object" ? <p className="qingke-safe-note">这段含图片、签章、目录域或其他嵌入对象，工具会保留整段格式，避免损坏。请在 Word/WPS 中复核。</p> : <>
                         {selected.protectionKind === "suggested" && <p className="qingke-safe-note">工具建议保持这段格式，原因：{selected.protectedReason}。如果判断错了，取消下面的勾选即可。</p>}
                         {selectedIsUnchangedBusiness && <p className="qingke-safe-note">你选择了参照商务格式，且没有勾选整理商务部分；这段商务格式会保持原样。更正标题判断仍可帮助选对技术部分的参考样式。</p>}
                         <label className="qingke-preserve-choice"><input type="checkbox" checked={selectedProtected} onChange={() => { if (selected.protectionKind === "suggested") toggleSuggestedProtection(selected.index); else toggleProtected(selected.index); setConfirmedIndices((current) => current.includes(selected.index) ? current : [...current, selected.index]); }} /> 保持这段格式原样 <HelpTip text="勾选后不会调整这段的字体、字号和编号。取消勾选后，可选择普通内容或标题；原文字始终不改。" /></label>
                         {selectedProtected ? <p className="qingke-selected-note">当前会跳过这段的格式调整。取消勾选后，就能选择它是标题还是普通内容。</p> : <>
                           <p className="qingke-question">这是小标题，还是普通内容？</p>
-                          <div className="qingke-answer-buttons"><button type="button" className={selectedLevel === 0 ? "active" : ""} onClick={() => confirmLevel(selected.index, 0)}>普通内容，不进目录</button><button type="button" className={selectedLevel > 0 ? "active" : ""} onClick={() => confirmLevel(selected.index, selectedLevel > 0 && selectedLevel <= 9 ? selectedLevel : 1)}>这是标题</button></div>
+                          <div className="qingke-answer-buttons"><button type="button" className={selectedLevel === 0 ? "active" : ""} onClick={() => confirmLevel(selected.index, 0)}>普通内容，不进目录</button><button type="button" className={selectedLevel > 0 ? "active" : ""} onClick={() => confirmLevel(selected.index, selectedLevel > 0 && selectedLevel <= 9 ? selectedLevel : selected.suggestedLevel || 1)}>这是标题</button></div>
+                          {selectedGroup.length > 1 && <button type="button" className="qingke-group-choice" onClick={() => markGroupAsBody(selectedGroup)}>这一组 {selectedGroup.length} 条都是普通内容</button>}
                           {selectedLevel > 0 && selectedLevel <= 9 && <label className="qingke-level-choice">它属于哪一级？ <HelpTip text="一级通常是大章节，二级是章节中的小节；目录默认只展示前 3 级，可选 4 级。" /><select value={selectedLevel} onChange={(event) => confirmLevel(selected.index, Number(event.target.value))}>{Array.from({ length: 9 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 级标题{i === 0 ? "（大章节）" : i === 1 ? "（小节）" : ""}</option>)}</select></label>}
                           {selectedLevel > 9 && <p className="qingke-safe-note">这是很深的编号，原编号会保留；超过 9 级的内容无法保证进入 Word/WPS 自动大纲。</p>}
                         </>}
@@ -386,7 +395,7 @@ export default function QingkePage() {
                     </>}
                   </div>}
 
-                  {boundary !== null && technicalEnd !== null && reviewCandidates.length > 0 && <div className="qingke-decision-card qingke-suspect-card"><h4>建议优先看 {reviewCandidates.length} 处</h4><p>这些带编号的长句可能是普通条款，也可能是标题，由你判断。</p>{reviewCandidates.slice(0, 3).map((p) => <button type="button" key={p.index} onClick={() => { setPickMode("inspect"); jumpToParagraph(p.index); }}>{trim(p.text, 54)} <span>查看 →</span></button>)}</div>}
+                  {boundary !== null && technicalEnd !== null && reviewCandidates.length > 0 && <div className="qingke-decision-card qingke-suspect-card"><h4>可能是标题：{reviewCandidates.length} 处</h4><p>这些段落只有序号，没有明确的标题设置，暂按普通内容处理。如果需要进入目录，点开后改成标题。</p>{reviewCandidates.slice(0, 3).map((p) => <button type="button" key={p.index} onClick={() => { setPickMode("inspect"); jumpToParagraph(p.index); }}>{trim(p.text, 54)} <span>查看 →</span></button>)}</div>}
                 </aside>
               </div>
 

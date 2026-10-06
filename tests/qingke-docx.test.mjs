@@ -17,7 +17,7 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const module = { exports: {} };
 new Function("require", "module", "exports", compiled)(createRequire(import.meta.url), module, module.exports);
-const { inspectBidDocx, inspectBusinessFormats, formatBidDocx } = module.exports;
+const { inspectBidDocx, inspectBusinessFormats, formatBidDocx, numberedClauseGroup } = module.exports;
 
 function paragraphs(documentXml) {
   const document = new xml.DOMParser().parseFromString(documentXml, "text/xml");
@@ -52,7 +52,7 @@ test("business mode preserves commercial paragraphs and all original text while 
   const inspection = await inspectBidDocx(file);
   assert.equal(inspection.paragraphs.length, 9);
   assert.equal(inspection.tableCount, 1);
-  assert.equal(inspection.paragraphs[6].inferredLevel, 11);
+  assert.equal(inspection.paragraphs[6].inferredLevel, 0);
   assert.match(inspection.paragraphs[0].protectedReason, /封面/);
   const result = await formatBidDocx(file, inspection, {
     boundaryIndex: 3,
@@ -63,7 +63,7 @@ test("business mode preserves commercial paragraphs and all original text while 
     tocDepth: 3,
     tocBeforeIndex: 1,
     applyPageLayout: false,
-    levels: {},
+    levels: { 6: 11 },
     protectedIndices: [],
   });
   const bundle = await JSZip.loadAsync(await result.zip.arrayBuffer());
@@ -141,6 +141,8 @@ test("ordinary numbered clauses stay editable while suggested formatting can be 
   const file = new File([await zip.generateAsync({ type: "uint8array" })], "保护纠错样本.docx");
   const inspection = await inspectBidDocx(file);
   assert.equal(inspection.paragraphs[9].protectedReason, null);
+  assert.equal(inspection.paragraphs[9].inferredLevel, 0);
+  assert.equal(inspection.paragraphs[9].suggestedLevel, 0);
   assert.equal(inspection.paragraphs[10].protectionKind, "suggested");
   assert.equal(inspection.paragraphs[11].protectionKind, "fixed-object");
 
@@ -163,6 +165,60 @@ test("ordinary numbered clauses stay editable while suggested formatting can be 
   assert.notEqual(new xml.XMLSerializer().serializeToString(correctedOutput[10]), new xml.XMLSerializer().serializeToString(original[10]));
   assert.equal(new xml.XMLSerializer().serializeToString(correctedOutput[11]), new xml.XMLSerializer().serializeToString(original[11]));
   assert.equal(correctedOutput[9].getElementsByTagNameNS(W, "t").item(0).textContent, "5.如我方成交，我方承诺：");
+});
+
+test("numbered body clauses stay out of the outline while real headings and manual corrections still work", async () => {
+  const document = new Document({ sections: [{ children: [
+    new Paragraph("3.我方承诺满足采购文件要求。"),
+    new Paragraph("4.我方承诺在有效期内不撤回文件。"),
+    new Paragraph("（1）按约定签订合同；"),
+    new Paragraph("（2）按约定提交材料；"),
+    new Paragraph({ text: "技术服务方案", heading: HeadingLevel.HEADING_1 }),
+    new Paragraph("1. 实施范围"),
+    new Paragraph({ text: "技术方案", heading: HeadingLevel.HEADING_2 }),
+  ] }] });
+  const file = new File([await Packer.toBuffer(document)], "编号条款样本.docx");
+  const inspection = await inspectBidDocx(file);
+  assert.deepEqual(inspection.paragraphs.map((p) => p.inferredLevel), [0, 0, 0, 0, 1, 0, 2]);
+  assert.equal(inspection.paragraphs[5].suggestedLevel, 2);
+  assert.deepEqual(numberedClauseGroup(inspection.paragraphs, 0), [0, 1]);
+  assert.deepEqual(numberedClauseGroup(inspection.paragraphs, 2), [2, 3]);
+  const result = await formatBidDocx(file, inspection, {
+    boundaryIndex: 0, technicalEndIndex: 7, mode: "standard", formatBusiness: true,
+    scheme: 1, tocDepth: 3, tocBeforeIndex: null, applyPageLayout: false,
+    levels: { 5: 2 }, protectedIndices: [], unprotectedIndices: [],
+  });
+  const bundle = await JSZip.loadAsync(await result.zip.arrayBuffer());
+  const output = await JSZip.loadAsync(await bundle.file("编号条款样本_顷刻排版.docx").async("uint8array"));
+  const outputParagraphs = paragraphs(await output.file("word/document.xml").async("string"));
+  assert.deepEqual(outputParagraphs.slice(0, 7).map((p) => p.getElementsByTagNameNS(W, "outlineLvl").item(0)?.getAttributeNS(W, "val") ?? null),
+    [null, null, null, null, "0", "1", "1"]);
+  assert.equal(outputParagraphs[0].getElementsByTagNameNS(W, "t").item(0).textContent, "3.我方承诺满足采购文件要求。");
+  assert.equal(outputParagraphs[5].getElementsByTagNameNS(W, "t").item(0).textContent, "1. 实施范围");
+});
+
+test("a consecutive numbered group with heading styles can be corrected to body together", async () => {
+  const document = new Document({ sections: [{ children: [
+    new Paragraph({ text: "3.我方承诺按时交付。", heading: HeadingLevel.HEADING_2 }),
+    new Paragraph({ text: "4.我方承诺保持材料真实。", heading: HeadingLevel.HEADING_2 }),
+    new Paragraph({ text: "技术方案", heading: HeadingLevel.HEADING_1 }),
+  ] }] });
+  const file = new File([await Packer.toBuffer(document)], "误设标题样本.docx");
+  const inspection = await inspectBidDocx(file);
+  assert.deepEqual(numberedClauseGroup(inspection.paragraphs, 0), [0, 1]);
+  const result = await formatBidDocx(file, inspection, {
+    boundaryIndex: 0, technicalEndIndex: 3, mode: "standard", formatBusiness: true,
+    scheme: 1, tocDepth: 3, tocBeforeIndex: null, applyPageLayout: false,
+    levels: { 0: 0, 1: 0 }, protectedIndices: [], unprotectedIndices: [],
+  });
+  const bundle = await JSZip.loadAsync(await result.zip.arrayBuffer());
+  const output = await JSZip.loadAsync(await bundle.file("误设标题样本_顷刻排版.docx").async("uint8array"));
+  const outputParagraphs = paragraphs(await output.file("word/document.xml").async("string"));
+  for (const paragraph of outputParagraphs.slice(0, 2)) {
+    assert.equal(paragraph.getElementsByTagNameNS(W, "pStyle").length, 0);
+    assert.equal(paragraph.getElementsByTagNameNS(W, "outlineLvl").length, 0);
+  }
+  assert.equal(outputParagraphs[2].getElementsByTagNameNS(W, "outlineLvl").item(0).getAttributeNS(W, "val"), "0");
 });
 
 test("business mode uses the recurring body size instead of a front-page size", async () => {

@@ -13,6 +13,7 @@ export type BidParagraph = {
   text: string;
   styleId: string;
   inferredLevel: number;
+  suggestedLevel: number;
   manualNumber: boolean;
   protectedReason: string | null;
   protectionKind: "fixed-object" | "suggested" | null;
@@ -129,19 +130,62 @@ function manualPrefix(text: string): { yes: boolean; depth: number } {
   return { yes: false, depth: 0 };
 }
 
-function headingLevel(paragraph: Element, text: string): number {
+function headingStyles(styles: XMLDocument | null): Map<string, number> {
+  const levels = new Map<string, number>();
+  if (!styles) return levels;
+  for (const style of descendants(styles, "style")) {
+    const id = value(style, "styleId");
+    const name = value(direct(style, "name"));
+    const outline = value(direct(direct(style, "pPr") ?? style, "outlineLvl"));
+    const named = `${id} ${name}`.match(/(?:Heading|标题|head)[\s_-]*([1-9])\b/i);
+    if (id && (/^[0-8]$/.test(outline) || named)) levels.set(id, /^[0-8]$/.test(outline) ? Number(outline) + 1 : Number(named![1]));
+  }
+  return levels;
+}
+
+function headingLevel(paragraph: Element, styles: Map<string, number>): number {
   const pPr = direct(paragraph, "pPr");
-  const style = value(pPr ? direct(pPr, "pStyle") : null);
-  const styleMatch = style.match(/(?:Heading|标题|head)[\s_-]*([1-9])$/i);
-  if (styleMatch) return Number(styleMatch[1]);
   const outline = value(pPr ? direct(pPr, "outlineLvl") : null);
   if (/^[0-8]$/.test(outline)) return Number(outline) + 1;
-  const prefix = manualPrefix(text);
-  if (prefix.yes && text.trim().length < 95) return prefix.depth;
+  if (outline === "9") return 0;
+  const style = value(pPr ? direct(pPr, "pStyle") : null);
+  if (styles.has(style)) return styles.get(style)!;
+  const styleMatch = style.match(/(?:Heading|标题|head)[\s_-]*([1-9])$/i);
+  if (styleMatch) return Number(styleMatch[1]);
   return 0;
 }
 
-function classifyProtection(paragraph: Element, text: string, index: number): Pick<BidParagraph, "protectedReason" | "protectionKind"> {
+function headingSuggestion(text: string, inferredLevel: number): number {
+  if (inferredLevel > 0) return 0;
+  const prefix = manualPrefix(text);
+  const trimmed = text.trim();
+  return prefix.depth <= 9 && trimmed.length <= 45 && !/[。；;：:]$/.test(trimmed) ? prefix.depth : 0;
+}
+
+function clauseNumber(text: string): { kind: string; value: number } | null {
+  const parenthesized = text.match(/^\s*[（(](\d+)[）)]/);
+  if (parenthesized) return { kind: "parenthesized", value: Number(parenthesized[1]) };
+  const dotted = text.match(/^\s*(\d+)[.．、）)](?!\d)/);
+  return dotted ? { kind: "dotted", value: Number(dotted[1]) } : null;
+}
+
+export function numberedClauseGroup(paragraphs: BidParagraph[], index: number): number[] {
+  const item = paragraphs[index];
+  const number = item && clauseNumber(item.text);
+  if (!item || !number || item.protectionKind === "fixed-object") return [];
+  const matches = (neighbor: BidParagraph, expected: number) => {
+    const next = clauseNumber(neighbor.text);
+    return neighbor.styleId === item.styleId && neighbor.inferredLevel === item.inferredLevel && neighbor.protectionKind !== "fixed-object" &&
+      next?.kind === number.kind && next.value === expected;
+  };
+  let start = index;
+  let end = index;
+  while (start > 0 && matches(paragraphs[start - 1], clauseNumber(paragraphs[start].text)!.value - 1)) start--;
+  while (end + 1 < paragraphs.length && matches(paragraphs[end + 1], clauseNumber(paragraphs[end].text)!.value + 1)) end++;
+  return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+}
+
+function classifyProtection(paragraph: Element, text: string, index: number, styles: Map<string, number>): Pick<BidParagraph, "protectedReason" | "protectionKind"> {
   if (["drawing", "pict", "object", "fldChar", "fldSimple", "instrText", "sdt", "hyperlink"].some((tag) => descendants(paragraph, tag).length)) {
     return { protectedReason: "含图片、签章、域或特殊对象", protectionKind: "fixed-object" };
   }
@@ -150,7 +194,8 @@ function classifyProtection(paragraph: Element, text: string, index: number): Pi
   }
   if (index < 20 && text.trim() === "目录") return { protectedReason: "原有目录标题", protectionKind: "suggested" };
   const pPr = direct(paragraph, "pPr");
-  const explicitHeading = /(?:Heading|标题|head)[\s_-]*[1-9]$/i.test(value(pPr ? direct(pPr, "pStyle") : null)) ||
+  const styleId = value(pPr ? direct(pPr, "pStyle") : null);
+  const explicitHeading = styles.has(styleId) || /(?:Heading|标题|head)[\s_-]*[1-9]$/i.test(styleId) ||
     /^[0-8]$/.test(value(pPr ? direct(pPr, "outlineLvl") : null));
   if (descendants(paragraph, "numPr").length && !explicitHeading) return { protectedReason: "已有自动列表", protectionKind: "suggested" };
   if (/_{4,}|＿{4,}/.test(text)) return { protectedReason: "疑似填写栏", protectionKind: "suggested" };
@@ -172,18 +217,22 @@ async function openDocx(file: File) {
 }
 
 export async function inspectBidDocx(file: File): Promise<BidInspection> {
-  const { documentXml } = await openDocx(file);
+  const { zip, documentXml } = await openDocx(file);
+  const stylesFile = zip.file("word/styles.xml");
+  const styles = headingStyles(stylesFile ? parseXml(await stylesFile.async("string"), "样式配置") : null);
   const sourceParagraphs = getParagraphs(documentXml);
   const paragraphs = sourceParagraphs.map((paragraph, index) => {
     const text = textOf(paragraph);
     const styleId = value(direct(direct(paragraph, "pPr") ?? paragraph, "pStyle"));
+    const inferredLevel = headingLevel(paragraph, styles);
     return {
       index,
       text,
       styleId,
-      inferredLevel: headingLevel(paragraph, text),
+      inferredLevel,
+      suggestedLevel: headingSuggestion(text, inferredLevel),
       manualNumber: manualPrefix(text).yes || descendants(paragraph, "numPr").length > 0,
-      ...classifyProtection(paragraph, text, index),
+      ...classifyProtection(paragraph, text, index, styles),
     };
   });
   const body = descendants(documentXml, "body")[0];
@@ -205,7 +254,7 @@ export async function inspectBidDocx(file: File): Promise<BidInspection> {
     descendants(documentXml, "fldSimple").some((node) => /\bTOC\b/i.test(value(node, "instr")));
   const warnings: string[] = [];
   if (sectionCount > 1) warnings.push("文档含多个节，页面边距将保持原样；请检查横向页和页眉页脚。");
-  if (paragraphs.some((p) => p.inferredLevel > 9)) warnings.push("发现超过 9 级的标题编号；深层可见编号将保留，但不能保证进入 Word/WPS 自动大纲。");
+  if (paragraphs.some((p) => manualPrefix(p.text).depth > 9)) warnings.push("发现超过 9 级的可见编号；会保留原编号，需要作为标题时请在 Word/WPS 中核对大纲。");
   if (!paragraphs.some((p) => p.inferredLevel > 0)) warnings.push("未可靠识别标题，请在下方手工标记标题层级后再导出。");
   return {
     paragraphs,
@@ -313,7 +362,7 @@ function clearHeadingIndent(paragraph: Element) {
   for (const name of ["left", "leftChars", "start", "startChars", "firstLine", "firstLineChars"]) setValue(ind, "0", name);
 }
 
-function applySpec(paragraph: Element, level: number, spec: StyleSpec, useBusinessStyle: boolean) {
+function applySpec(paragraph: Element, level: number, spec: StyleSpec, useBusinessStyle: boolean, headingStyleIds: Map<string, number>) {
   const pPr = direct(paragraph, "pPr") ?? paragraph.insertBefore(make(paragraph.ownerDocument, "pPr"), paragraph.firstChild);
   const pOrder = ["pStyle", "keepNext", "numPr", "spacing", "ind", "jc", "outlineLvl", "rPr"];
   if (level > 0 && level <= 9) {
@@ -322,7 +371,7 @@ function applySpec(paragraph: Element, level: number, spec: StyleSpec, useBusine
     upsertProperty(pPr, "keepNext", pOrder);
   } else if (level === 0) {
     const style = direct(pPr, "pStyle");
-    if (/(?:Heading|标题|head)[\s_-]*[1-9]$/i.test(value(style))) remove(style);
+    if (headingStyleIds.has(value(style)) || /(?:Heading|标题|head)[\s_-]*[1-9]$/i.test(value(style))) remove(style);
     remove(direct(pPr, "outlineLvl"));
     remove(direct(pPr, "keepNext"));
   }
@@ -535,6 +584,7 @@ export async function formatBidDocx(file: File, inspection: BidInspection, optio
   }
   const stylesFile = zip.file("word/styles.xml");
   const styles = stylesFile ? parseXml(await stylesFile.async("string"), "样式配置") : null;
+  const headingStyleIds = headingStyles(styles);
   const specs = options.mode === "business" ? businessSpecs(paragraphs, inspection, options, styles) : STANDARD;
   const report: string[] = [];
   const protectedSet = new Set(options.protectedIndices);
@@ -558,7 +608,7 @@ export async function formatBidDocx(file: File, inspection: BidInspection, optio
       report.push(`第 ${item.index + 1} 段超过 Word/WPS 9 级自动大纲范围，保留可见编号和原样式，仅取消标题缩进。`);
       continue;
     }
-    applySpec(paragraph, level, specs[Math.min(level, 6)], options.mode === "business");
+    applySpec(paragraph, level, specs[Math.min(level, 6)], options.mode === "business", headingStyleIds);
     formattedParagraphs++;
     if (level > 0 && level <= 6) {
       if (item.manualNumber) {
