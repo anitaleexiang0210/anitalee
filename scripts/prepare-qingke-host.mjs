@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { cpSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const target = process.argv[2];
@@ -15,21 +14,16 @@ const destination = resolve("dist", target === "front" ? "qingke-front" : "qingk
 rmSync(destination, { recursive: true, force: true });
 mkdirSync(destination, { recursive: true });
 
+const assetPrefix = readFileSync(join(source, "qingke.html"), "utf8").match(/(\/qingke-assets-[a-f0-9]+)\/_next\//)?.[1] ?? "";
+if (assetPrefix) mkdirSync(join(destination, assetPrefix), { recursive: true });
+
 for (const name of ["_next", "favicon.svg", "og.png", "_headers"]) {
   const item = join(source, name);
-  if (existsSync(item)) cpSync(item, join(destination, name), { recursive: true });
+  if (existsSync(item)) cpSync(item, join(destination, name === "_next" ? assetPrefix + "/_next" : name), { recursive: true });
 }
 
 function copyHtml(from, to) {
-  const html = readFileSync(join(source, from), "utf8").replace(
-    /\/_next\/[^"\\?]+\.(?:js|css)/g,
-    (asset) => {
-      const bytes = readFileSync(join(source, asset.slice(1)));
-      const version = createHash("sha256").update(bytes).digest("hex").slice(0, 12);
-      return `${asset}?v=${version}`;
-    },
-  );
-  writeFileSync(join(destination, to), html);
+  copyFileSync(join(source, from), join(destination, to));
 }
 
 if (target === "front") {
