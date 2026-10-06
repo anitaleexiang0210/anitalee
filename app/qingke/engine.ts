@@ -17,8 +17,13 @@ export type BidParagraph = {
   protectedReason: string | null;
 };
 
+export type BidPreviewBlock =
+  | { kind: "paragraph"; paragraphIndex: number }
+  | { kind: "table"; rows: string[][] };
+
 export type BidInspection = {
   paragraphs: BidParagraph[];
+  previewBlocks: BidPreviewBlock[];
   tableCount: number;
   graphicCount: number;
   sectionCount: number;
@@ -161,7 +166,8 @@ async function openDocx(file: File) {
 
 export async function inspectBidDocx(file: File): Promise<BidInspection> {
   const { documentXml } = await openDocx(file);
-  const paragraphs = getParagraphs(documentXml).map((paragraph, index) => {
+  const sourceParagraphs = getParagraphs(documentXml);
+  const paragraphs = sourceParagraphs.map((paragraph, index) => {
     const text = textOf(paragraph);
     const styleId = value(direct(direct(paragraph, "pPr") ?? paragraph, "pStyle"));
     return {
@@ -173,6 +179,20 @@ export async function inspectBidDocx(file: File): Promise<BidInspection> {
       protectedReason: protectedReason(paragraph, text, index),
     };
   });
+  const body = descendants(documentXml, "body")[0];
+  let paragraphIndex = 0;
+  const previewBlocks: BidPreviewBlock[] = [];
+  for (const node of childElements(body)) {
+    if (node.namespaceURI !== W) continue;
+    if (node.localName === "p") {
+      previewBlocks.push({ kind: "paragraph", paragraphIndex: paragraphIndex++ });
+    } else if (node.localName === "tbl") {
+      const rows = childElements(node).filter((row) => row.namespaceURI === W && row.localName === "tr")
+        .map((row) => childElements(row).filter((cell) => cell.namespaceURI === W && cell.localName === "tc")
+          .map((cell) => descendants(cell, "p").map(textOf).filter(Boolean).join("\n")));
+      previewBlocks.push({ kind: "table", rows });
+    }
+  }
   const sectionCount = descendants(documentXml, "sectPr").length;
   const hasToc = descendants(documentXml, "instrText").some((node) => /\bTOC\b/i.test(node.textContent ?? "")) ||
     descendants(documentXml, "fldSimple").some((node) => /\bTOC\b/i.test(value(node, "instr")));
@@ -182,6 +202,7 @@ export async function inspectBidDocx(file: File): Promise<BidInspection> {
   if (!paragraphs.some((p) => p.inferredLevel > 0)) warnings.push("未可靠识别标题，请在下方手工标记标题层级后再导出。");
   return {
     paragraphs,
+    previewBlocks,
     tableCount: descendants(documentXml, "tbl").length,
     graphicCount: descendants(documentXml, "drawing").length + descendants(documentXml, "pict").length,
     sectionCount,
@@ -190,12 +211,12 @@ export async function inspectBidDocx(file: File): Promise<BidInspection> {
   };
 }
 
-export async function inspectBusinessFormats(file: File, inspection: BidInspection, boundaryIndex: number): Promise<Array<{ level: number; example: string; font: string; size: number; align: string; source: ResolvedBusinessSpec["source"] }>> {
+export async function inspectBusinessFormats(file: File, inspection: BidInspection, boundaryIndex: number, levels: Record<number, number> = {}): Promise<Array<{ level: number; example: string; font: string; size: number; align: string; source: ResolvedBusinessSpec["source"] }>> {
   const { zip, documentXml } = await openDocx(file);
   const paragraphs = getParagraphs(documentXml);
   const stylesFile = zip.file("word/styles.xml");
   const styles = stylesFile ? parseXml(await stylesFile.async("string"), "样式配置") : null;
-  return resolveBusinessSpecs(paragraphs, inspection, boundaryIndex, styles).map(({ spec, item, source }, level) => {
+  return resolveBusinessSpecs(paragraphs, inspection, boundaryIndex, styles, levels).map(({ spec, item, source }, level) => {
     return { level, example: item?.text.slice(0, 38) ?? "", font: spec.font,
       size: spec.size / 2, align: spec.align, source };
   });
