@@ -29,3 +29,10 @@
 @media(max-width:900px){.qingke-preview-layout{grid-template-columns:1fr}.qingke-decision-column{position:static;max-height:none;overflow:visible}.qingke-preview-document{height:510px}.qingke-review-overview{align-items:flex-start;flex-direction:column}.qingke-review-panel{padding:25px 22px}}
 @media(max-width:560px){.qingke-preview-document{height:430px;padding:19px 13px}.qingke-answer-buttons{flex-direction:column}.qingke-preview-paragraph{font-size:12px}}
 .qingke-floating-tip{box-sizing:border-box;position:fixed;z-index:10000;width:min(235px,calc(100vw - 24px));padding:10px 12px;border-radius:8px;background:#173e55;color:#fff;font-family:"PingFang SC","Microsoft YaHei",sans-serif;font-size:11px;line-height:1.6;box-shadow:0 9px 24px rgba(20,43,56,.2);white-space:normal;pointer-events:none}
+
+/* Match section top and bottom whitespace to its horizontal inset. */
+.qingke-hero{padding-block:44px}
+.qingke-workspace{padding-block:24px}
+.qingke-boundary{padding-block:44px}
+@media(max-width:800px){.qingke-hero{padding-block:24px}.qingke-workspace{padding-block:15px}.qingke-boundary{padding-block:25px}}
+@media(max-width:560px){.qingke-hero{padding-top:24px}}
