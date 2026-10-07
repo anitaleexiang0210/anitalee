@@ -274,12 +274,12 @@ export default function QingkePage() {
       <main>
         <section className="qingke-hero">
           <div className="qingke-hero-copy">
-            <p className="qingke-eyebrow">手工合稿，格式调整常耗 3 小时至 1 个工作日</p>
-            <h1>宝贵的时间专注撰写文件<br /><em>费时的格式调整交给顷刻</em></h1>
+            <p className="qingke-eyebrow">帮你搞定投标文件最繁琐环节</p>
+            <h1>投标文件省时神器<br /><em>灵活调整格式</em></h1>
             <p className="qingke-lead">针对已合并的商务标与技术标，梳理标题层级、编号、正文样式与目录。标题和正文文字始终不改；图片、签章等对象保持原样，结果由你在 Word/WPS 中复核。</p>
             <div className="qingke-hero-actions">
               <a className="qingke-primary" href="#workflow">开始整理 DOCX <span aria-hidden="true">↗</span></a>
-              <span>文件在浏览器本地处理 · 不上传标书</span>
+              <span>文件在浏览器本地处理，不上传外网</span>
             </div>
           </div>
           <div className="qingke-paper-preview" aria-hidden="true">

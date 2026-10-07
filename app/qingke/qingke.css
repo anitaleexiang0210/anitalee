@@ -36,3 +36,7 @@
 .qingke-boundary{padding-block:44px}
 @media(max-width:800px){.qingke-hero{padding-block:24px}.qingke-workspace{padding-block:15px}.qingke-boundary{padding-block:25px}}
 @media(max-width:560px){.qingke-hero{padding-top:24px}}
+
+.qingke-paper-sheet{animation:qingke-paper-float 6s ease-in-out infinite}
+@keyframes qingke-paper-float{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-7px) rotate(-1deg)}}
+@media(prefers-reduced-motion:reduce){.qingke-paper-sheet{animation:none}}
