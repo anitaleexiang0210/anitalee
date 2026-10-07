@@ -274,8 +274,8 @@ export default function QingkePage() {
       <main>
         <section className="qingke-hero">
           <div className="qingke-hero-copy">
-            <p className="qingke-eyebrow">专为标书最后一公里而做</p>
-            <h1>把时间留给投标内容，<br /><em>把排版交给顷刻。</em></h1>
+            <p className="qingke-eyebrow">手工合稿，格式调整常耗 3 小时至 1 个工作日</p>
+            <h1>宝贵的时间专注撰写文件<br /><em>费时的格式调整交给顷刻</em></h1>
             <p className="qingke-lead">针对已合并的商务标与技术标，梳理标题层级、编号、正文样式与目录。标题和正文文字始终不改；图片、签章等对象保持原样，结果由你在 Word/WPS 中复核。</p>
             <div className="qingke-hero-actions">
               <a className="qingke-primary" href="#workflow">开始整理 DOCX <span aria-hidden="true">↗</span></a>
